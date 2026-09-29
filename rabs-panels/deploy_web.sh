@@ -93,7 +93,7 @@ pm2 logs '${process_name}' --lines 40 --nostream || true
 exit 1
 "
 
-if [[ -n "$(dig +short "$domain" 2>/dev/null)" ]]; then
+if [[ -n "$(dig +short "$domain" @1.1.1.1 2>/dev/null)" ]]; then
   code="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 25 "https://${domain}/" || echo 000)"
   log "Public https://${domain}/ → HTTP ${code}"
 else
