@@ -10,7 +10,8 @@ module.exports = {
       max_memory_restart: '500M',
       env: {
         NODE_ENV: 'production',
-        PORT: 4015
+        PORT: 4015,
+        TZ: 'Europe/London'
       },
       error_file: '/var/log/pm2/rabs-api-error.log',
       out_file: '/var/log/pm2/rabs-api-out.log',

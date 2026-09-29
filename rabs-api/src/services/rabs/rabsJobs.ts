@@ -3,7 +3,7 @@ import { AppDataSource } from '@config/data-source.js';
 import {
   RabsCustomer, RabsJob, RabsAppointment, RabsMeasurement, RabsRoom, RabsRoomAccessory, RabsProduct, RabsFile, RabsQuote
 } from '@entities/rabs/RabsEntities.js';
-import { Ctx, bad, conflict, notFound, loadJob, nextNumber, addTimeline, recomputeJob, storeFile, removeStoredFile, requireCap } from './rabsCore.js';
+import { Ctx, bad, conflict, notFound, loadJob, nextNumber, addTimeline, recomputeJob, storeFile, removeStoredFile, requireCap, isOfficeUser } from './rabsCore.js';
 import { ftInToMetres, roomDimensions, productQuantity, accessoryQuantity, type RoomDims, round2 } from './rabsCalc.js';
 
 const R = {
@@ -67,7 +67,16 @@ export async function findDuplicateCustomers(ctx: Ctx, phone?: string | null, em
     "(" + [p ? "REPLACE(REPLACE(c.phone,' ',''),'-','') = :p" : null, email ? 'c.email = :e' : null].filter(Boolean).join(' OR ') + ')',
     { p, e: email }
   );
-  return qb.limit(5).getMany();
+  const found = await qb.limit(5).getMany();
+  if (!found.length) return [];
+  const jobs: Array<{ cid: string; id: string; jobNumber: string }> = await AppDataSource.query(
+    'SELECT rabs_customer_id cid, id, job_number jobNumber FROM rabs_jobs WHERE rabs_customer_id IN (?) ORDER BY id DESC',
+    [found.map((c) => c.id)]
+  );
+  return found.map((c) => {
+    const j = jobs.find((x) => String(x.cid) === c.id);
+    return { ...c, jobId: j ? String(j.id) : null, jobNumber: j?.jobNumber ?? null };
+  });
 }
 
 export async function createCustomer(ctx: Ctx, input: CustomerInput) {
@@ -259,6 +268,7 @@ export async function updateAppointment(ctx: Ctx, id: string, input: Partial<App
 
 export async function listAppointments(ctx: Ctx, from?: string, to?: string, staffUserId?: string) {
   requireCap(ctx, 'appointments', 'fieldwork');
+  if (!isOfficeUser(ctx)) staffUserId = ctx.userId;
   const params: unknown[] = [ctx.orgId];
   let where = 'a.organization_id = ? AND a.status <> "cancelled"';
   if (from) {
