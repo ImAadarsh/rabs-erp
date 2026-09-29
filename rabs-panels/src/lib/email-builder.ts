@@ -68,7 +68,7 @@ export function createDefaultBlock(type: EmailBlockType): EmailBlock {
         buttonLabel: 'Get started',
         buttonUrl: 'https://',
         align: 'center',
-        color: '#E3070F',
+        color: '#A31F24',
       };
     case 'divider':
       return { id, type };
@@ -157,7 +157,7 @@ export function renderBlockHtml(block: EmailBlock): string {
       return `<tr><td align="${align}" style="padding:12px 32px;">${wrapped}</td></tr>`;
     }
     case 'button': {
-      const bg = block.color || '#E3070F';
+      const bg = block.color || '#A31F24';
       const label = esc(block.buttonLabel || 'Click here');
       const url = esc(block.buttonUrl || '#');
       return `<tr><td align="${align}" style="padding:16px 32px;"><a href="${url}" target="_blank" rel="noopener" style="display:inline-block;background:${bg};color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:600;">${label}</a></td></tr>`;

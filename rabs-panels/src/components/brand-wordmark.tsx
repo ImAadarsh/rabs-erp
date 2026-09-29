@@ -2,25 +2,25 @@ import clsx from 'clsx';
 import { BRAND } from '@/lib/brand';
 
 type Props = {
-  /** `onDark` for dark surfaces (sidebar, hero), `onLight` for light surfaces. */
+  /** Only affects the text fallback; the RABS logo carries its own background. */
   tone?: 'onDark' | 'onLight';
   size?: 'sm' | 'md' | 'lg';
   className?: string;
 };
 
 const SIZES = {
-  sm: { mark: 'h-7 w-7 text-[15px]', primary: 'text-[13px]', secondary: 'text-[8px]', img: 'h-9' },
-  md: { mark: 'h-9 w-9 text-lg', primary: 'text-base', secondary: 'text-[9px]', img: 'h-12' },
-  lg: { mark: 'h-14 w-14 text-3xl', primary: 'text-3xl', secondary: 'text-sm', img: 'h-[70px]' }
+  sm: { mark: 'h-7 w-7 text-[15px]', primary: 'text-[13px]', secondary: 'text-[8px]', img: 'h-10' },
+  md: { mark: 'h-9 w-9 text-lg', primary: 'text-base', secondary: 'text-[9px]', img: 'h-16' },
+  lg: { mark: 'h-14 w-14 text-3xl', primary: 'text-3xl', secondary: 'text-sm', img: 'h-28' }
 } as const;
 
 export function BrandWordmark({ tone = 'onLight', size = 'md', className }: Props) {
   const s = SIZES[size];
-  const logo = tone === 'onDark' ? BRAND.logoOnDark : BRAND.logoOnLight;
+  const logo = size === 'sm' ? BRAND.logoCompact : BRAND.logo;
 
   if (logo) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={logo} alt={BRAND.name} className={clsx(s.img, 'w-auto object-contain', className)} />;
+    return <img src={logo} alt={BRAND.name} className={clsx(s.img, 'w-auto rounded-md object-contain', className)} />;
   }
 
   const onDark = tone === 'onDark';

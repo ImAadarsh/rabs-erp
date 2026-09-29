@@ -825,7 +825,7 @@ function Item({ href, icon, label, active }: { href: string; icon: React.ReactNo
     <Link
       href={href}
       className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 font-medium text-sm ${active
-        ? 'bg-gradient-to-r from-zaam-500/20 to-transparent text-zaam-400 shadow-[inset_2px_0_0_0_#E3070F]'
+        ? 'bg-gradient-to-r from-zaam-500/20 to-transparent text-zaam-400 shadow-[inset_2px_0_0_0_#A31F24]'
         : 'text-white/60 hover:text-white hover:bg-white/5'
         }`}
     >

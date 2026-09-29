@@ -200,10 +200,10 @@ export function UnifiedInvoiceDocument({
         <header className="flex flex-wrap items-start justify-between gap-6 border-b border-slate-200 px-8 py-7">
           <div className="min-w-0 flex-1">
             <div className="flex items-start gap-4">
-              {seller?.logoUrl || BRAND.logoOnLight ? (
+              {seller?.logoUrl || BRAND.logo ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={seller?.logoUrl || BRAND.logoOnLight || ''}
+                  src={seller?.logoUrl || BRAND.logo || ''}
                   alt={seller?.name || BRAND.name}
                   className="h-14 w-auto max-w-[160px] object-contain"
                 />

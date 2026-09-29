@@ -60,6 +60,8 @@ const config: Config = {
         accent: {
           DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",
+          gold: 'rgb(var(--gold-500) / <alpha-value>)',
+          orange: 'rgb(var(--gold-400) / <alpha-value>)',
         },
         popover: {
           DEFAULT: "hsl(var(--popover))",
@@ -71,8 +73,8 @@ const config: Config = {
         },
       },
       backgroundImage: {
-        'gold-radial': 'radial-gradient(closest-side, #E3070F, rgba(227,7,15,0))',
-        'gold-linear': 'linear-gradient(135deg, #E3070F 0%, #BE060D 100%)',
+        'gold-radial': 'radial-gradient(closest-side, #D4AF37, rgba(212,175,55,0))',
+        'gold-linear': 'linear-gradient(135deg, #D4AF37 0%, #E8A33D 100%)',
         'glass-gradient': 'linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%)'
       },
       borderRadius: {
@@ -86,7 +88,7 @@ const config: Config = {
         'elev-1': '0 2px 4px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02)',
         'elev-2': '0 8px 24px -4px rgba(0,0,0,0.08)',
         'elev-3': '0 20px 40px -8px rgba(0,0,0,0.12)',
-        'glow': '0 0 20px rgba(227,7,15, 0.15)'
+        'glow': '0 0 20px rgba(163,31,36, 0.15)'
       },
       fontFamily: {
         sans: ['var(--font-inter)', 'sans-serif'],

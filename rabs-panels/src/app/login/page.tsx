@@ -75,22 +75,31 @@ function LoginContent() {
         <div className="absolute inset-0 bg-gradient-to-br from-zaam-black via-zaam-charcoal to-black" />
         {/* Gold radial glow */}
         <div className="pointer-events-none absolute -top-24 -left-24 h-[420px] w-[420px] rounded-full opacity-30"
-          style={{ background: 'radial-gradient(closest-side, #E3070F, transparent)' }} />
+          style={{ background: 'radial-gradient(closest-side, #A31F24, transparent)' }} />
         <div className="pointer-events-none absolute -bottom-24 -right-24 h-[520px] w-[520px] rounded-full opacity-20"
-          style={{ background: 'radial-gradient(closest-side, #E3070F, transparent)' }} />
+          style={{ background: 'radial-gradient(closest-side, #D4AF37, transparent)' }} />
         <div className="relative z-10 text-center px-10">
           <div className="mx-auto mb-8 flex justify-center">
-            <BrandWordmark tone="onDark" size="lg" />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={BRAND.badge}
+              alt={`${BRAND.name} — ${BRAND.tagline}`}
+              className="h-72 w-72 rounded-full object-contain drop-shadow-[0_18px_40px_rgba(212,175,55,0.25)]"
+            />
           </div>
-          <div className="mx-auto mb-6 h-px w-24 bg-gradient-to-r from-transparent via-brand-400/70 to-transparent" />
-          <p className="text-white/75 mt-3 max-w-md mx-auto tracking-wide">{BRAND.tagline}</p>
+          <h1 className="font-heading text-2xl font-semibold tracking-wide text-white">{BRAND.name}</h1>
+          <div className="mx-auto my-4 h-px w-24 bg-gradient-to-r from-transparent via-accent-gold/80 to-transparent" />
+          <p className="text-accent-gold/90 max-w-md mx-auto text-xs font-semibold uppercase tracking-[0.2em]">
+            {BRAND.products.join(' · ')}
+          </p>
+          <p className="text-white/60 mt-3 text-sm">{BRAND.address}</p>
         </div>
         {/* Fine gold lines overlay */}
         <svg className="pointer-events-none absolute inset-0 opacity-15" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#E3070F" />
-              <stop offset="100%" stopColor="#BE060D" />
+              <stop offset="0%" stopColor="#D4AF37" />
+              <stop offset="100%" stopColor="#E8A33D" />
             </linearGradient>
           </defs>
           {Array.from({ length: 20 }).map((_, i) => (

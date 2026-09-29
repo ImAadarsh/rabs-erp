@@ -5,11 +5,11 @@ import {
 
 export const modules = [
   {
-    slug: 'iam', name: 'Identity & Access', icon: Shield, color: '#E3070F',
+    slug: 'iam', name: 'Identity & Access', icon: Shield, color: '#A31F24',
     description: 'Users, Roles, API Keys, Audit'
   },
   {
-    slug: 'catalog', name: 'Product & Catalog', icon: Package2, color: '#E3070F',
+    slug: 'catalog', name: 'Product & Catalog', icon: Package2, color: '#A31F24',
     description: 'Products, Variants, Pricing, Channels'
   },
   {
@@ -21,7 +21,7 @@ export const modules = [
     description: 'Orders, Customers, Returns'
   },
   {
-    slug: 'b2b', name: 'B2B Sale Channel', icon: Store, color: '#E3070F',
+    slug: 'b2b', name: 'B2B Sale Channel', icon: Store, color: '#A31F24',
     description: 'Wholesale portal, retailers, pricing, orders'
   },
   {
@@ -29,23 +29,23 @@ export const modules = [
     description: 'Pick/Pack, Shipments, Tracking'
   },
   {
-    slug: 'finance', name: 'Payments & Invoicing', icon: Wallet, color: '#E3070F',
+    slug: 'finance', name: 'Payments & Invoicing', icon: Wallet, color: '#A31F24',
     description: 'Gateways, Payments, Invoices'
   },
   {
-    slug: 'accounting', name: 'Finance & Accounting', icon: Landmark, color: '#E3070F',
+    slug: 'accounting', name: 'Finance & Accounting', icon: Landmark, color: '#A31F24',
     description: 'UK ledger, VAT, invoices, bills, payroll journals'
   },
   {
-    slug: 'hr', name: 'HR & Payroll', icon: Users, color: '#E3070F',
+    slug: 'hr', name: 'HR & Payroll', icon: Users, color: '#A31F24',
     description: 'Employees, immigration/RTW, leave, payroll, pension, recruitment'
   },
   {
-    slug: 'crm', name: 'CRM & Service', icon: Headset, color: '#E3070F',
+    slug: 'crm', name: 'CRM & Service', icon: Headset, color: '#A31F24',
     description: 'Accounts, Leads, Pipeline, Integrations, Tickets & Tiers'
   },
   {
-    slug: 'projects', name: 'Project Management', icon: FolderKanban, color: '#E3070F',
+    slug: 'projects', name: 'Project Management', icon: FolderKanban, color: '#A31F24',
     description: 'Jobs, work orders, tasks, milestones, staff schedule & progress'
   },
   {

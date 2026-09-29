@@ -128,7 +128,7 @@ export default function SocialInsightsPage() {
                       <XAxis dataKey="day" tick={{ fontSize: 10 }} />
                       <YAxis tick={{ fontSize: 10 }} />
                       <Tooltip />
-                      <Area type="monotone" dataKey="value" stroke="#E3070F" fill="#E3070F33" />
+                      <Area type="monotone" dataKey="value" stroke="#A31F24" fill="#A31F2433" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>

@@ -4,20 +4,22 @@
 
 @layer base {
   :root {
-    /* ABS Interiors brand: logo red (#E3070F) with black / charcoal / white (RGB channels) */
-    --brand-50: 254 242 242;
-    --brand-100: 254 226 227;
-    --brand-200: 253 196 198;
-    --brand-300: 250 150 154;
-    --brand-400: 242 84 90;
-    --brand-500: 227 7 15;
-    --brand-600: 190 6 13;
-    --brand-700: 158 5 11;
-    --brand-800: 122 4 9;
-    --brand-900: 84 3 7;
-    --brand-950: 50 2 4;
-    --brand-ink: 17 17 17;
-    --brand-charcoal: 34 34 34;
+    /* RABS brand: deep crimson (#A31F24 / #8E1B1F) with gold (#D4AF37) / orange (#E8A33D) accents on dark charcoal (RGB channels) */
+    --brand-50: 253 243 243;
+    --brand-100: 251 228 229;
+    --brand-200: 245 199 201;
+    --brand-300: 234 150 153;
+    --brand-400: 209 84 89;
+    --brand-500: 163 31 36;
+    --brand-600: 142 27 31;
+    --brand-700: 117 22 26;
+    --brand-800: 92 17 20;
+    --brand-900: 64 12 14;
+    --brand-950: 38 7 8;
+    --brand-ink: 20 17 17;
+    --brand-charcoal: 38 34 34;
+    --gold-400: 232 163 61;
+    --gold-500: 212 175 55;
 
     --background: 0 0% 100%;
     --foreground: 0 0% 7%;
@@ -25,7 +27,7 @@
     --card-foreground: 0 0% 7%;
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 7%;
-    --primary: 358 94% 46%;
+    --primary: 358 68% 38%;
     --primary-foreground: 0 0% 100%;
     --secondary: 0 0% 96%;
     --secondary-foreground: 0 0% 9%;
@@ -37,7 +39,7 @@
     --destructive-foreground: 60 9.1% 97.8%;
     --border: 0 0% 90%;
     --input: 0 0% 90%;
-    --ring: 358 94% 46%;
+    --ring: 358 68% 38%;
     --radius: 0.75rem;
     
     --ease: cubic-bezier(.22,.61,.36,1);
@@ -50,7 +52,7 @@
     --card-foreground: 0 0% 98%;
     --popover: 0 0% 8%;
     --popover-foreground: 0 0% 98%;
-    --primary: 358 80% 52%;
+    --primary: 358 57% 49%;
     --primary-foreground: 0 0% 100%;
     --secondary: 0 0% 14%;
     --secondary-foreground: 0 0% 98%;
@@ -62,7 +64,7 @@
     --destructive-foreground: 60 9.1% 97.8%;
     --border: 0 0% 16%;
     --input: 0 0% 16%;
-    --ring: 358 80% 52%;
+    --ring: 358 57% 49%;
   }
 }
 
@@ -86,7 +88,7 @@
   left: -10%;
   width: 50%;
   height: 50%;
-  background: radial-gradient(circle, rgba(227,7,15,0.08) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(163,31,36,0.08) 0%, transparent 70%);
   filter: blur(60px);
   z-index: 0;
   pointer-events: none;
@@ -99,7 +101,7 @@
   right: -10%;
   width: 50%;
   height: 50%;
-  background: radial-gradient(circle, rgba(227,7,15,0.05) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(163,31,36,0.05) 0%, transparent 70%);
   filter: blur(60px);
   z-index: 0;
   pointer-events: none;

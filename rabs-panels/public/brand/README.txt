@@ -1,9 +1,10 @@
-ABS Interiors Ltd brand assets
+RABS Carpets & Furniture brand assets ("Turning Houses Into Homes")
 
-abs-logo.png          Original logo (red chevron + black wordmark) for light surfaces, print and email.
-abs-logo-on-dark.png  Same logo with the wordmark in white, for dark surfaces (sidebar, login hero).
-abs-mark.svg          Red chevron on white; favicon source.
-abs-mark-*.png        Raster icons (32 favicon, 180 apple-touch, 192/512 PWA).
+rabs-logo.png          Horizontal logo (horse + RABS + tagline, red background) for login card, print, invoices and email.
+rabs-logo-compact.png  Tight horse + RABS crop for small slots (sidebar, mobile header).
+rabs-badge.png         Round gold-ring badge (transparent corners) for the login hero.
+rabs-banner.jpg        Full rectangular banner with gold frame, for marketing use.
+rabs-icon-*.png        Badge rasterised for favicon (32), apple-touch (180) and PWA (192/512).
 
-Brand red: #E3070F. Neutrals: #111111 (ink), #222222 (charcoal), #FFFFFF.
-Paths and contact details are configured in src/lib/brand.ts.
+Palette: crimson #A31F24 / #8E1B1F, gold #D4AF37, orange #E8A33D, charcoal #262222.
+Names, address and phone are configured in src/lib/brand.ts.

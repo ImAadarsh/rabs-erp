@@ -58,7 +58,7 @@ export default function B2bShipmentsPage() {
                   organizationId: orgId,
                   status: 'dispatched',
                   trackingNumber: tracking,
-                  carrier: row.original.carrier || 'ABS Interiors Freight'
+                  carrier: row.original.carrier || 'RABS Freight'
                 });
                 toast.success('Marked dispatched');
                 load();

@@ -144,7 +144,7 @@ export default function SocialDashboard() {
                   <XAxis dataKey="day" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip />
-                  <Area type="monotone" dataKey="value" stroke="#E3070F" fill="#E3070F33" />
+                  <Area type="monotone" dataKey="value" stroke="#A31F24" fill="#A31F2433" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>

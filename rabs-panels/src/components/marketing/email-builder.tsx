@@ -202,7 +202,7 @@ function BlockEditor({
             </span>
             <input
               type="color"
-              value={block.color || '#E3070F'}
+              value={block.color || '#A31F24'}
               onChange={(e) => set({ color: e.target.value })}
               className="h-10 w-full rounded-xl border border-border cursor-pointer"
             />

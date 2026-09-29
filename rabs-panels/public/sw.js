@@ -1,4 +1,4 @@
-// Service Worker for ABS Interiors Admin Panel
+// Service Worker for RABS Admin Panel
 const VERSION = 'v3';
 const RUNTIME_CACHE = `rabs-runtime-${VERSION}`;
 const ALLOWED_CACHES = [RUNTIME_CACHE];

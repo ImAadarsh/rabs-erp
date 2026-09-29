@@ -9,7 +9,7 @@ import { forwardRef } from 'react';
  * in dark mode, when printed, and when rasterised into a PDF.
  */
 
-const ACCENT = '#E3070F';
+const ACCENT = '#A31F24';
 const INK = '#1a1a1a';
 const MUTED = '#6b7280';
 const RULE = '#e5e7eb';

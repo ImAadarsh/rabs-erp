@@ -89,8 +89,8 @@ export default function DashboardPage() {
                 <AreaChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#E3070F" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#E3070F" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#A31F24" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#A31F24" stopOpacity={0}/>
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
@@ -100,7 +100,7 @@ export default function DashboardPage() {
                     contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
                     itemStyle={{ color: 'hsl(var(--foreground))' }}
                   />
-                  <Area type="monotone" dataKey="revenue" stroke="#E3070F" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
+                  <Area type="monotone" dataKey="revenue" stroke="#A31F24" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>

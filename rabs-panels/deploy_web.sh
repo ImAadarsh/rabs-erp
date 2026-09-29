@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Deploy ABS Interiors panels (Next.js ERP UI) to the Hostinger VPS.
+# Deploy RABS panels (Next.js ERP UI) to the Hostinger VPS.
 #
-# Portal: https://rabsinteriors.app       (Traefik route staged until DNS is pointed)
+# Portal: https://rabsinteriors.app
 # API:    https://api.rabsinteriors.app   (PM2 rabs-api :4015)
 #
 # Edge: Traefik (:80/:443) → PM2 Next.js on 127.0.0.1:4016
