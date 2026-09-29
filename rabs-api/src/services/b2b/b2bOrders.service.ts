@@ -463,7 +463,7 @@ export async function createPaymentIntent(opts: {
       currency: order.currency || 'GBP',
       transactionReference: txnId.slice(0, 64),
       orderReference: order.orderNumber,
-      narrativeLine1: 'ABS INTERIORS',
+      narrativeLine1: 'RABS',
       card: {
         cardNumber: opts.cardDetails.cardNumber,
         expiryMonth,
@@ -552,7 +552,7 @@ export async function createPaymentIntent(opts: {
   if (opts.method === 'bank_transfer') {
     const instructions =
       settings.bankTransferInstructions ||
-      'Transfer the order total to the ABS Interiors account shown in your trade agreement. Include the order number as the payment reference. Staff will mark the payment received once funds clear.';
+      'Transfer the order total to the RABS account shown in your trade agreement. Include the order number as the payment reference. Staff will mark the payment received once funds clear.';
 
     if (gateway?.provider === 'open_banking' && !gateway.apiKeyEncrypted) {
       throw Object.assign(

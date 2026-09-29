@@ -1,5 +1,5 @@
 /**
- * Idempotent reference-data seed for a fresh ABS Interiors database.
+ * Idempotent reference-data seed for a fresh RABS Carpets & Furniture database.
  * Creates the organization, system roles, SUPER_ADMIN user, UK chart of accounts,
  * VAT codes, CRM pipelines, customer tiers and HR leave policies. No demo data.
  *
@@ -26,19 +26,24 @@ import { CrmStage } from '../entities/crm/CrmStage.js';
 import { CustomerTier } from '../entities/crm/CustomerTier.js';
 import { HrLeavePolicy } from '../entities/hr/HrLeavePolicy.js';
 import { CatalogItem } from '../entities/catalog/CatalogItem.js';
-import { CrmTag } from '../entities/crm/CrmTag.js';
 import { getOrCreateCrmSettings } from '../services/crm/crmSettings.service.js';
 
-const ORG_NAME = process.env.SEED_ORG_NAME || 'ABS Interiors Ltd';
-const LEGACY_ORG_NAMES = ['Rabs Interiors', 'ABS Interiors'];
+const ORG_NAME = process.env.SEED_ORG_NAME || 'RABS Carpets & Furniture';
+const LEGACY_ORG_NAMES = ['Rabs Interiors'];
 const ORG_PROFILE = {
-  legalName: 'ABS Interiors Ltd',
-  phone: '+44 7568314656',
-  email: 'allan@absinteriors.co.uk',
-  website: 'https://absinteriors.co.uk',
-  logoUrl: process.env.SEED_ORG_LOGO_URL || 'https://rabsinteriors.app/brand/abs-logo.png'
+  legalName: null,
+  phone: '07774 596 596',
+  email: null,
+  website: null,
+  logoUrl: process.env.SEED_ORG_LOGO_URL || 'https://rabsinteriors.app/brand/rabs-logo.png'
 };
-const HQ_ADDRESS = { city: 'Glenrothes', stateProvince: 'Fife, Scotland', countryCode: 'GB' };
+const HQ_ADDRESS = {
+  addressLine1: '194 Waterloo Road',
+  city: 'Stoke-on-Trent',
+  postalCode: 'ST6 3HF',
+  stateProvince: null,
+  countryCode: 'GB'
+};
 const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'admin@rabsinteriors.app';
 const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || '';
 
@@ -156,26 +161,9 @@ const CUSTOMER_TIERS = [
   { tierName: 'Platinum', tierCode: 'PLATINUM', discountPercent: 15, prioritySupport: true, position: 4, minLifetimeValue: 15000, minOrders: 40 }
 ];
 
-const SERVICE_ITEMS: { sku: string; name: string; description: string }[] = [
-  { sku: 'SVC-KITCHENS', name: 'Kitchens', description: 'Fully fitted kitchens — design, supply and installation' },
-  { sku: 'SVC-BATHROOMS', name: 'Bathrooms', description: 'Fully fitted bathrooms and wet rooms' },
-  { sku: 'SVC-WARDROBES', name: 'Fitted Wardrobes', description: 'Made-to-measure fitted wardrobes' },
-  { sku: 'SVC-EXTENSIONS', name: 'Extensions', description: 'Home extensions' },
-  { sku: 'SVC-ATTIC', name: 'Attic Conversions', description: 'Attic and loft conversions' },
-  { sku: 'SVC-GARAGE', name: 'Garage Conversions', description: 'Garage conversions' },
-  { sku: 'SVC-JOINERY', name: 'Traditional Joinery', description: 'Traditional joinery and joiner works' },
-  { sku: 'SVC-FLOORING', name: 'Hardwood & Laminate Flooring', description: 'Hardwood and laminate flooring supply and fit' }
-];
+/** Product lines; catalog has no category table, so each line is a reference item carrying its category. */
+const PRODUCT_LINES = ['Carpet', 'Laminate', 'LVT', 'Flooring', 'Vinyl', 'Beds', 'Sofas', 'Furniture'];
 
-/** Lead interest options, applied to leads as CRM tags. */
-const LEAD_INTEREST_TAGS = [
-  'Fitted Kitchens',
-  'Fitted Bathrooms',
-  'Fitted Wardrobes',
-  'Extensions',
-  'Attic Conversions',
-  'Joiner Works'
-];
 
 const LEAVE_POLICIES: Array<{
   name: string;
@@ -216,7 +204,7 @@ async function main() {
   let bu = await buRepo.findOne({ where: { organization: { id: orgId }, code: 'BU-MAIN' } as any });
   if (!bu) {
     bu = await buRepo.save(
-      buRepo.create({ organization: org, code: 'BU-MAIN', name: 'ABS Interiors', type: 'retail', status: 'active' } as any) as any
+      buRepo.create({ organization: org, code: 'BU-MAIN', name: ORG_NAME, type: 'retail', status: 'active' } as any) as any
     );
     console.log('Created business unit');
   } else if ((bu as any).name !== ORG_NAME) {
@@ -241,9 +229,8 @@ async function main() {
       } as any)
     );
     console.log('Created head office location');
-  } else if (!existingLoc.city) {
+  } else {
     await locRepo.update({ id: existingLoc.id } as any, { ...HQ_ADDRESS, phone: ORG_PROFILE.phone, email: ORG_PROFILE.email } as any);
-    console.log('Head office address updated');
   }
 
   const roleRepo = ds.getRepository(Role);
@@ -451,11 +438,12 @@ async function main() {
   await getOrCreateCrmSettings(orgId);
 
   const catalogRepo = ds.getRepository(CatalogItem);
-  for (const svc of SERVICE_ITEMS) {
+  for (const line of PRODUCT_LINES) {
+    const sku = `LINE-${line.toUpperCase()}`;
     const existing = await catalogRepo
       .createQueryBuilder('c')
       .where('c.organization_id = :orgId', { orgId })
-      .andWhere('c.sku = :sku', { sku: svc.sku })
+      .andWhere('c.sku = :sku', { sku })
       .withDeleted()
       .getOne();
     if (existing) continue;
@@ -463,23 +451,17 @@ async function main() {
       catalogRepo.create({
         organization: org,
         businessUnit: bu,
-        ...svc,
-        category: 'Services',
+        sku,
+        name: line,
+        description: `${line} — product line reference`,
+        category: line,
         brand: ORG_NAME,
-        uom: 'job',
         currency: 'GBP',
         status: 'active'
       } as any)
     );
   }
-  console.log('Service catalog items ready:', SERVICE_ITEMS.length);
-
-  const tagRepo = ds.getRepository(CrmTag);
-  for (const name of LEAD_INTEREST_TAGS) {
-    if (await tagRepo.findOne({ where: { organizationId: orgId, name } as any })) continue;
-    await tagRepo.save(tagRepo.create({ organizationId: orgId, name, color: '#E3070F' } as any));
-  }
-  console.log('Lead interest tags ready:', LEAD_INTEREST_TAGS.length);
+  console.log('Product line categories ready:', PRODUCT_LINES.length);
 
   const policyRepo = ds.getRepository(HrLeavePolicy);
   for (const lp of LEAVE_POLICIES) {
@@ -489,7 +471,7 @@ async function main() {
   console.log('Leave policies ready:', LEAVE_POLICIES.length);
 
   await ds.destroy();
-  console.log('ABS Interiors reference seed complete. Organization id:', orgId);
+  console.log('RABS reference seed complete. Organization id:', orgId);
 }
 
 main().catch(async (err) => {

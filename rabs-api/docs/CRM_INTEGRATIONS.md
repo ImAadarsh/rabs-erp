@@ -179,7 +179,7 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=your-account@gmail.com
 SMTP_PASS=your-16-char-app-password
-SMTP_FROM="ABS Interiors <your-account@gmail.com>"
+SMTP_FROM="RABS <your-account@gmail.com>"
 
 # Optional global SendGrid fallback (prefer DB connector)
 SENDGRID_API_KEY=
@@ -207,10 +207,10 @@ Never log `SMTP_PASS` or `SENDGRID_API_KEY`. List/get responses include `meta.sm
 ```json
 {
   "name": "Spring cold outreach",
-  "subject": "Wholesale with ABS Interiors",
+  "subject": "Wholesale with RABS",
   "htmlBody": "<p>Hi,</p><p>…</p>",
   "builderJson": null,
-  "fromName": "ABS Interiors",
+  "fromName": "RABS",
   "replyTo": "support@example.com",
   "connectorId": null,
   "audienceType": "crm_leads",

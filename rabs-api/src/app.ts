@@ -51,7 +51,7 @@ app.get('/health', (_req, res) => {
 // Welcome message for API root
 app.get('/api', (_req, res) => {
   res.json({
-    message: 'Welcome to ABS Interiors API',
+    message: 'Welcome to RABS API',
     version: '1.0.0',
     status: 'operational',
     documentation: `${env.PUBLIC_API_URL}/health`,

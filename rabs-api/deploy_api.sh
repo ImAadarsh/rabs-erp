@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploy rabs-api (Express) to the Hostinger VPS.
 #
-# API:  https://api.rabsinteriors.app   (Traefik route staged until DNS is pointed)
+# API:  https://api.rabsinteriors.app
 # Edge: Traefik (:80/:443) → PM2 Node on 127.0.0.1:4015
 # DB:   VPS MySQL 127.0.0.1:32768 / rabs_interiors
 # Auth: ~/.ssh/id_ed25519_hostinger

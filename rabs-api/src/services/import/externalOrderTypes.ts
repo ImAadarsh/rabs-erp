@@ -16,7 +16,7 @@ export type ParsedPaymentMethod =
   | 'other';
 
 export interface ParsedExternalOrderLine {
-  /** SKU used to resolve the ABS Interiors catalog variant. */
+  /** SKU used to resolve the RABS catalog variant. */
   sku: string | null;
   /** External product id, used as a fallback lookup via ChannelMapping. */
   externalProductId: string | null;
@@ -68,7 +68,7 @@ export interface ParsedExternalOrder {
   externalId: string;
   /** Human-facing external reference (receipt no / Woo order number). */
   externalNumber: string | null;
-  /** ABS Interiors-side unique order number, namespaced per connection. */
+  /** RABS-side unique order number, namespaced per connection. */
   orderNumber: string;
   orderDate: Date;
   currency: string;
@@ -112,7 +112,7 @@ export interface OrderImportSummary {
   ordersUpdated: number;
   ordersSkipped: number;
   linesCreated: number;
-  /** Lines whose SKU could not be matched to a ABS Interiors catalog variant. */
+  /** Lines whose SKU could not be matched to a RABS catalog variant. */
   linesUnmatched: number;
   paymentsCreated: number;
   paymentsSkipped: number;

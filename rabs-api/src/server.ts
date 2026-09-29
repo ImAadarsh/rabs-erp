@@ -16,7 +16,7 @@ async function bootstrap(): Promise<void> {
     const server = createServer(app);
     server.listen(env.PORT, env.HOST, () => {
       // eslint-disable-next-line no-console
-      console.log(`ABS Interiors API running on http://${env.HOST}:${env.PORT}`);
+      console.log(`RABS API running on http://${env.HOST}:${env.PORT}`);
     });
   } catch (err) {
     // eslint-disable-next-line no-console

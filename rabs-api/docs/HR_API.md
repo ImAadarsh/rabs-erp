@@ -1,4 +1,4 @@
-# UK HR API (ABS Interiors)
+# UK HR API (RABS)
 
 Base path: **`/api/hr`**  
 Auth: `Authorization: Bearer <JWT>` — unauthenticated → **401** (not 404)  
