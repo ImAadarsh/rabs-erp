@@ -33,8 +33,8 @@ const config: Config = {
           black: 'rgb(var(--brand-ink) / <alpha-value>)',
           white: '#FFFFFF',
           charcoal: 'rgb(var(--brand-charcoal) / <alpha-value>)',
-          grey: '#6E6A64',
-          soft: '#E7E3DC'
+          grey: '#6B6B6B',
+          soft: '#E5E5E5'
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -71,8 +71,8 @@ const config: Config = {
         },
       },
       backgroundImage: {
-        'gold-radial': 'radial-gradient(closest-side, #9A7B52, rgba(154,123,82,0))',
-        'gold-linear': 'linear-gradient(135deg, #9A7B52 0%, #7F6443 100%)',
+        'gold-radial': 'radial-gradient(closest-side, #E3070F, rgba(227,7,15,0))',
+        'gold-linear': 'linear-gradient(135deg, #E3070F 0%, #BE060D 100%)',
         'glass-gradient': 'linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%)'
       },
       borderRadius: {
@@ -86,7 +86,7 @@ const config: Config = {
         'elev-1': '0 2px 4px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02)',
         'elev-2': '0 8px 24px -4px rgba(0,0,0,0.08)',
         'elev-3': '0 20px 40px -8px rgba(0,0,0,0.12)',
-        'glow': '0 0 20px rgba(154,123,82, 0.15)'
+        'glow': '0 0 20px rgba(227,7,15, 0.15)'
       },
       fontFamily: {
         sans: ['var(--font-inter)', 'sans-serif'],

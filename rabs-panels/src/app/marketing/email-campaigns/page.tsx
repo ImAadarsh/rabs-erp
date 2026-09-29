@@ -558,7 +558,7 @@ export default function MarketingEmailCampaignsPage() {
               value={form.subject}
               onChange={(e) => setForm({ ...form, subject: e.target.value })}
               className={crmInputClass}
-              placeholder="Quick intro from Rabs Interiors"
+              placeholder="Quick intro from ABS Interiors"
             />
           </CrmField>
 
@@ -591,7 +591,7 @@ export default function MarketingEmailCampaignsPage() {
                 value={form.fromName}
                 onChange={(e) => setForm({ ...form, fromName: e.target.value })}
                 className={crmInputClass}
-                placeholder="Rabs Interiors Marketing"
+                placeholder="ABS Interiors Marketing"
               />
             </CrmField>
             <CrmField label="Reply-to (optional)">

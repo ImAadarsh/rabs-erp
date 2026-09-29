@@ -1,3 +1,4 @@
+import { BRAND, BRAND_CONTACT_LINE } from '@/lib/brand';
 export function accApiError(err: unknown, fallback = 'Something went wrong'): string {
   const e = err as { response?: { data?: { error?: { message?: string }; message?: string } }; message?: string };
   return e?.response?.data?.error?.message || e?.response?.data?.message || e?.message || fallback;
@@ -53,9 +54,12 @@ export function printElement(title: string, html: string) {
       th,td{border-bottom:1px solid #e5e5e5;padding:8px;text-align:left}
       th{font-weight:600;color:#444} .num{text-align:right;font-variant-numeric:tabular-nums}
       .total{font-weight:700} @media print{button{display:none}}
+      .brand{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #E3070F;padding-bottom:12px;margin-bottom:16px}
+      .brand img{height:48px} .brand .contact{text-align:right;font-size:11px;color:#555;line-height:1.5}
     </style></head><body>
+    <div class="brand"><img src="${window.location.origin}${BRAND.logoOnLight ?? ''}" alt="${BRAND.name}" onerror="this.remove()"/><div class="contact">${BRAND.name}<br/>${BRAND_CONTACT_LINE}</div></div>
     <h1>${title}</h1>
-    <div class="meta">Rabs Interiors Accounting · Printed ${new Date().toLocaleString('en-GB')}</div>
+    <div class="meta">${BRAND.name} · Accounting · Printed ${new Date().toLocaleString('en-GB')}</div>
     ${html}
     <script>window.onload=()=>window.print()</script>
     </body></html>`);

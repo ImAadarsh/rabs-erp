@@ -75,9 +75,9 @@ function LoginContent() {
         <div className="absolute inset-0 bg-gradient-to-br from-zaam-black via-zaam-charcoal to-black" />
         {/* Gold radial glow */}
         <div className="pointer-events-none absolute -top-24 -left-24 h-[420px] w-[420px] rounded-full opacity-30"
-          style={{ background: 'radial-gradient(closest-side, #9A7B52, transparent)' }} />
+          style={{ background: 'radial-gradient(closest-side, #E3070F, transparent)' }} />
         <div className="pointer-events-none absolute -bottom-24 -right-24 h-[520px] w-[520px] rounded-full opacity-20"
-          style={{ background: 'radial-gradient(closest-side, #9A7B52, transparent)' }} />
+          style={{ background: 'radial-gradient(closest-side, #E3070F, transparent)' }} />
         <div className="relative z-10 text-center px-10">
           <div className="mx-auto mb-8 flex justify-center">
             <BrandWordmark tone="onDark" size="lg" />
@@ -89,8 +89,8 @@ function LoginContent() {
         <svg className="pointer-events-none absolute inset-0 opacity-15" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#9A7B52" />
-              <stop offset="100%" stopColor="#7F6443" />
+              <stop offset="0%" stopColor="#E3070F" />
+              <stop offset="100%" stopColor="#BE060D" />
             </linearGradient>
           </defs>
           {Array.from({ length: 20 }).map((_, i) => (

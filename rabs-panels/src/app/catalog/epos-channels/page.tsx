@@ -98,7 +98,7 @@ export default function EposChannelsPage() {
   const [testingId, setTestingId] = useState<string | null>(null);
   const [savingConn, setSavingConn] = useState(false);
   const [newConn, setNewConn] = useState({
-    name: 'Rabs Interiors EPOS',
+    name: 'ABS Interiors EPOS',
     subdomain: '',
     username: '',
     password: '',
@@ -515,7 +515,7 @@ export default function EposChannelsPage() {
       });
       toast.success(
         res.data.generated
-          ? `Generated ${res.data.generated} barcode(s) in Rabs Interiors catalog`
+          ? `Generated ${res.data.generated} barcode(s) in ABS Interiors catalog`
           : `No new barcodes — ${res.data.skipped ?? 0} variant(s) already have barcodes`
       );
     } catch (e: any) {
@@ -963,7 +963,7 @@ export default function EposChannelsPage() {
                       {confirmDelete.mode === 'all' ? (
                         <>
                           This will permanently remove <strong>every product</strong> from Good Till / SumUp POS
-                          for this outlet (not just the current search page). This cannot be undone from Rabs Interiors.
+                          for this outlet (not just the current search page). This cannot be undone from ABS Interiors.
                         </>
                       ) : confirmDelete.mode === 'one' && confirmDelete.product ? (
                         <>
@@ -1006,8 +1006,8 @@ export default function EposChannelsPage() {
 
           {activeTab === 'import' && (
             <div className="space-y-4 max-w-xl">
-              <h2 className="text-lg font-semibold">Import from Good Till → Rabs Interiors</h2>
-              <p className="text-sm text-muted-foreground">Pull EPOS products into your Rabs Interiors catalog with barcodes and channel mappings.</p>
+              <h2 className="text-lg font-semibold">Import from Good Till → ABS Interiors</h2>
+              <p className="text-sm text-muted-foreground">Pull EPOS products into your ABS Interiors catalog with barcodes and channel mappings.</p>
               <label className="block text-sm font-medium">
                 Warehouse (stock)
                 <select className="mt-1 w-full rounded-md border px-3 py-2 text-sm" value={importOptions.warehouseId} onChange={(e) => setImportOptions({ ...importOptions, warehouseId: e.target.value })}>
@@ -1044,7 +1044,7 @@ export default function EposChannelsPage() {
             <div className="space-y-4">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-lg font-semibold">Push &amp; sync Rabs Interiors → Good Till EPOS</h2>
+                  <h2 className="text-lg font-semibold">Push &amp; sync ABS Interiors → Good Till EPOS</h2>
                   <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
                     <strong>Push all</strong> creates catalog products that are missing in EPOS.
                     <strong> Sync</strong> also updates name, description, price and stock quantity when ERP data changes, and adds any new products.

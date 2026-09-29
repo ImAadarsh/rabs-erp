@@ -9,9 +9,9 @@ type Props = {
 };
 
 const SIZES = {
-  sm: { mark: 'h-7 w-7 text-[15px]', primary: 'text-[13px]', secondary: 'text-[8px]', img: 'h-7' },
-  md: { mark: 'h-9 w-9 text-lg', primary: 'text-base', secondary: 'text-[9px]', img: 'h-9' },
-  lg: { mark: 'h-14 w-14 text-3xl', primary: 'text-3xl', secondary: 'text-sm', img: 'h-16' }
+  sm: { mark: 'h-7 w-7 text-[15px]', primary: 'text-[13px]', secondary: 'text-[8px]', img: 'h-9' },
+  md: { mark: 'h-9 w-9 text-lg', primary: 'text-base', secondary: 'text-[9px]', img: 'h-12' },
+  lg: { mark: 'h-14 w-14 text-3xl', primary: 'text-3xl', secondary: 'text-sm', img: 'h-[70px]' }
 } as const;
 
 export function BrandWordmark({ tone = 'onLight', size = 'md', className }: Props) {
@@ -34,7 +34,7 @@ export function BrandWordmark({ tone = 'onLight', size = 'md', className }: Prop
           onDark ? 'border-brand-400/60 text-brand-300 bg-white/[0.03]' : 'border-brand-500/50 text-brand-600 bg-brand-50'
         )}
       >
-        R
+        {BRAND.wordmarkPrimary.slice(0, 1)}
       </span>
       <span className="flex flex-col leading-none text-left">
         <span

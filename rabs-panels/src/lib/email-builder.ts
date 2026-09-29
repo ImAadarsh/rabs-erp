@@ -1,4 +1,5 @@
 /** Block-based email builder — MVP (not a full Unlayer clone). */
+import { BRAND, BRAND_CONTACT_LINE } from '@/lib/brand';
 
 export type EmailBlockType =
   | 'logo'
@@ -48,7 +49,7 @@ export function createDefaultBlock(type: EmailBlockType): EmailBlock {
   const id = newBlockId();
   switch (type) {
     case 'logo':
-      return { id, type, companyName: 'Your company', logoUrl: '', align: 'center' };
+      return { id, type, companyName: BRAND.name, logoUrl: BRAND.logoAbsoluteUrl, align: 'center' };
     case 'heading':
       return { id, type, text: 'Your headline', level: 1, align: 'left' };
     case 'paragraph':
@@ -67,7 +68,7 @@ export function createDefaultBlock(type: EmailBlockType): EmailBlock {
         buttonLabel: 'Get started',
         buttonUrl: 'https://',
         align: 'center',
-        color: '#9A7B52',
+        color: '#E3070F',
       };
     case 'divider':
       return { id, type };
@@ -75,7 +76,7 @@ export function createDefaultBlock(type: EmailBlockType): EmailBlock {
       return {
         id,
         type,
-        text: 'You received this email from our marketing list. Reply to unsubscribe requests as needed.',
+        text: `${BRAND.name}\n${BRAND_CONTACT_LINE}\n\nYou received this email from our marketing list. Reply to unsubscribe requests as needed.`,
         align: 'center',
       };
     default:
@@ -156,7 +157,7 @@ export function renderBlockHtml(block: EmailBlock): string {
       return `<tr><td align="${align}" style="padding:12px 32px;">${wrapped}</td></tr>`;
     }
     case 'button': {
-      const bg = block.color || '#9A7B52';
+      const bg = block.color || '#E3070F';
       const label = esc(block.buttonLabel || 'Click here');
       const url = esc(block.buttonUrl || '#');
       return `<tr><td align="${align}" style="padding:16px 32px;"><a href="${url}" target="_blank" rel="noopener" style="display:inline-block;background:${bg};color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:600;">${label}</a></td></tr>`;

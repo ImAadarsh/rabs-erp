@@ -1,11 +1,9 @@
-Rabs Interiors brand assets.
+ABS Interiors Ltd brand assets
 
-- rabs-mark.svg          square monogram (favicon / PWA source)
-- rabs-mark-192.png      PWA icon (rendered from rabs-mark.svg)
-- rabs-mark-512.png      PWA icon
-- rabs-mark-180.png      apple-touch-icon
+abs-logo.png          Original logo (red chevron + black wordmark) for light surfaces, print and email.
+abs-logo-on-dark.png  Same logo with the wordmark in white, for dark surfaces (sidebar, login hero).
+abs-mark.svg          Red chevron on white; favicon source.
+abs-mark-*.png        Raster icons (32 favicon, 180 apple-touch, 192/512 PWA).
 
-The sidebar, header and login screens use a text wordmark (src/components/brand-wordmark.tsx).
-To switch to a supplied logo: add the files here and set BRAND.logoOnDark / BRAND.logoOnLight
-in src/lib/brand.ts. Regenerate PNGs with:
-  rsvg-convert -w 512 -h 512 rabs-mark.svg -o rabs-mark-512.png
+Brand red: #E3070F. Neutrals: #111111 (ink), #222222 (charcoal), #FFFFFF.
+Paths and contact details are configured in src/lib/brand.ts.

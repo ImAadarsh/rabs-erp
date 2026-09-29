@@ -23,12 +23,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#9A7B52" />
+        <meta name="theme-color" content="#E3070F" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5" />
-        <title>Rabs Interiors</title>
-        <meta name="description" content="Rabs Interiors - Complete business management platform" />
-        <link rel="icon" href="/brand/rabs-mark.svg" type="image/svg+xml" />
-        <link rel="apple-touch-icon" href="/brand/rabs-mark-180.png" />
+        <title>ABS Interiors Ltd</title>
+        <meta name="description" content="ABS Interiors Ltd — fully fitted kitchens, bathrooms, fitted wardrobes, extensions and attic conversions. Business management platform." />
+        <link rel="icon" href="/brand/abs-mark.svg" type="image/svg+xml" />
+        <link rel="apple-touch-icon" href="/brand/abs-mark-180.png" />
       </head>
       <body className={`${inter.variable} ${poppins.variable} font-sans antialiased`} suppressHydrationWarning>
         <ServiceWorkerRegistration />

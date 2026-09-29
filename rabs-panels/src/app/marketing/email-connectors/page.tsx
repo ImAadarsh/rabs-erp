@@ -573,7 +573,7 @@ export default function MarketingEmailConnectorsPage() {
               value={creds.fromName}
               onChange={(e) => setCreds({ ...creds, fromName: e.target.value })}
               className={crmInputClass}
-              placeholder="Rabs Interiors Marketing"
+              placeholder="ABS Interiors Marketing"
             />
           </CrmField>
 

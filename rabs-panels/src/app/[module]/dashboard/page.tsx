@@ -10,7 +10,7 @@ import { listUsers, listRoles, listAuditLogs, listOrganizations, listBusinessUni
 import { Users, Shield, Key, FileText, UserCog, TrendingUp, Activity, Building2, Briefcase, MapPin, Package2, Tag, DollarSign, Receipt, Truck, Package, Settings, Share2 } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-const COLORS = ['#9A7B52', '#B0966E', '#C8B393', '#654F36', '#7F6443'];
+const COLORS = ['#E3070F', '#F2545A', '#FA969A', '#9E050B', '#BE060D'];
 
 export default function ModuleDashboardPage() {
   const router = useRouter();
@@ -535,8 +535,8 @@ export default function ModuleDashboardPage() {
                     <AreaChart data={chartData.userGrowth}>
                       <defs>
                         <linearGradient id="colorUsers" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#9A7B52" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#9A7B52" stopOpacity={0} />
+                          <stop offset="5%" stopColor="#E3070F" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#E3070F" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
@@ -549,8 +549,8 @@ export default function ModuleDashboardPage() {
                           borderRadius: '8px'
                         }}
                       />
-                      <Area type="monotone" dataKey="users" stroke="#9A7B52" fillOpacity={1} fill="url(#colorUsers)" strokeWidth={2} />
-                      <Area type="monotone" dataKey="active" stroke="#B0966E" fillOpacity={0.5} fill="#B0966E" strokeWidth={2} />
+                      <Area type="monotone" dataKey="users" stroke="#E3070F" fillOpacity={1} fill="url(#colorUsers)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="active" stroke="#F2545A" fillOpacity={0.5} fill="#F2545A" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -574,8 +574,8 @@ export default function ModuleDashboardPage() {
                         }}
                       />
                       <Legend />
-                      <Bar dataKey="logins" fill="#9A7B52" radius={[8, 8, 0, 0]} />
-                      <Bar dataKey="actions" fill="#B0966E" radius={[8, 8, 0, 0]} />
+                      <Bar dataKey="logins" fill="#E3070F" radius={[8, 8, 0, 0]} />
+                      <Bar dataKey="actions" fill="#F2545A" radius={[8, 8, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -631,7 +631,7 @@ export default function ModuleDashboardPage() {
                           borderRadius: '8px'
                         }}
                       />
-                      <Bar dataKey="value" fill="#9A7B52" radius={[0, 8, 8, 0]} />
+                      <Bar dataKey="value" fill="#E3070F" radius={[0, 8, 8, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -720,8 +720,8 @@ export default function ModuleDashboardPage() {
                     <AreaChart data={chartData.userGrowth}>
                       <defs>
                         <linearGradient id="colorCatalog" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#9A7B52" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#9A7B52" stopOpacity={0} />
+                          <stop offset="5%" stopColor="#E3070F" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#E3070F" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
@@ -734,8 +734,8 @@ export default function ModuleDashboardPage() {
                           borderRadius: '8px'
                         }}
                       />
-                      <Area type="monotone" dataKey="users" stroke="#9A7B52" fillOpacity={1} fill="url(#colorCatalog)" strokeWidth={2} />
-                      <Area type="monotone" dataKey="active" stroke="#B0966E" fillOpacity={0.5} fill="#B0966E" strokeWidth={2} />
+                      <Area type="monotone" dataKey="users" stroke="#E3070F" fillOpacity={1} fill="url(#colorCatalog)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="active" stroke="#F2545A" fillOpacity={0.5} fill="#F2545A" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -791,7 +791,7 @@ export default function ModuleDashboardPage() {
                           borderRadius: '8px'
                         }}
                       />
-                      <Bar dataKey="value" fill="#9A7B52" radius={[0, 8, 8, 0]} />
+                      <Bar dataKey="value" fill="#E3070F" radius={[0, 8, 8, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>

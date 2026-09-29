@@ -9,7 +9,7 @@ import { forwardRef } from 'react';
  * in dark mode, when printed, and when rasterised into a PDF.
  */
 
-const GOLD = '#9A7B52';
+const ACCENT = '#E3070F';
 const INK = '#1a1a1a';
 const MUTED = '#6b7280';
 const RULE = '#e5e7eb';
@@ -163,7 +163,7 @@ export const StockTransferReceipt = forwardRef<HTMLDivElement, {
                         <img
                             src={company.logoUrl}
                             alt=""
-                            style={{ width: 56, height: 56, objectFit: 'contain', borderRadius: 6 }}
+                            style={{ height: 48, width: 'auto', maxWidth: 170, objectFit: 'contain' }}
                         />
                     )}
                     <div>
@@ -183,7 +183,7 @@ export const StockTransferReceipt = forwardRef<HTMLDivElement, {
 
                 <div style={{ textAlign: 'right' }}>
                     <div style={{
-                        fontSize: 17, fontWeight: 700, color: GOLD,
+                        fontSize: 17, fontWeight: 700, color: ACCENT,
                         textTransform: 'uppercase', letterSpacing: 1
                     }}>
                         Transfer Receipt
@@ -201,14 +201,14 @@ export const StockTransferReceipt = forwardRef<HTMLDivElement, {
                 </div>
             </div>
 
-            <div style={{ height: 3, background: GOLD, borderRadius: 2, margin: '16px 0 18px' }} />
+            <div style={{ height: 3, background: ACCENT, borderRadius: 2, margin: '16px 0 18px' }} />
 
             {/* Movement route */}
             <div style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
                 <WarehousePanel label="Dispatched from" warehouse={transfer.fromWarehouse} accent="#b91c1c" />
                 <div style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 20, color: GOLD, fontWeight: 700, minWidth: 28
+                    fontSize: 20, color: ACCENT, fontWeight: 700, minWidth: 28
                 }}>
                     →
                 </div>
