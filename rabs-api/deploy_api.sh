@@ -78,7 +78,7 @@ echo 'Local health failed' >&2
 pm2 logs '${process_name}' --lines 40 --nostream || true
 exit 1"
 
-if [[ -n "$(dig +short "$domain" 2>/dev/null)" ]]; then
+if [[ -n "$(dig +short "$domain" @1.1.1.1 2>/dev/null)" ]]; then
   curl -sS -o /dev/null -w "public_health:%{http_code}\n" "https://${domain}/health" || true
 else
   log "DNS for ${domain} not pointed yet — skipping public check."
