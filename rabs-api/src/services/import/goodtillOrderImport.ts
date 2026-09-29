@@ -24,7 +24,7 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Good Till tender codes → Rabs Interiors payment methods. */
+/** Good Till tender codes → ABS Interiors payment methods. */
 function mapPaymentMethod(method: string): ParsedPaymentMethod {
   const m = (method ?? '').trim().toUpperCase();
   if (m === 'CASH') return 'cash';

@@ -1,5 +1,5 @@
 /**
- * Parse Rabs Interiors inventory seed Excel (.xlsx) into structured product rows.
+ * Parse ABS Interiors inventory seed Excel (.xlsx) into structured product rows.
  * Expected headers match "Inventory sheet updated *.xlsx".
  */
 

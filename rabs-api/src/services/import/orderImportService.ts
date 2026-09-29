@@ -29,7 +29,7 @@ import type {
   ParsedExternalOrderLine
 } from './externalOrderTypes.js';
 
-/** Resolves external line identifiers to Rabs Interiors catalog variants. */
+/** Resolves external line identifiers to ABS Interiors catalog variants. */
 class VariantResolver {
   private bySku = new Map<string, string>();
   private byExternalId = new Map<string, string>();

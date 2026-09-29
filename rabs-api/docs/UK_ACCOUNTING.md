@@ -1,4 +1,4 @@
-# UK Accounting API (Rabs Interiors)
+# UK Accounting API (ABS Interiors)
 
 Base path: **`/api/finance`**  
 Auth: `Authorization: Bearer <JWT>`  

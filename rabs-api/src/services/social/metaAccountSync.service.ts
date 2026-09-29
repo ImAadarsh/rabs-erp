@@ -263,7 +263,7 @@ export async function syncMetaAccountsFromCode(opts: {
   if (facebook === 0 && instagram === 0 && ads === 0) {
     const declinedNote = declined.length ? ` Declined permissions: ${declined.join(', ')}.` : '';
     throw new MetaGraphError(
-      'No Facebook Pages, Instagram accounts, or ad accounts were granted to Rabs Interiors. ' +
+      'No Facebook Pages, Instagram accounts, or ad accounts were granted to ABS Interiors. ' +
         'During Business Login, select the business assets and enable every requested permission. ' +
         'If the assets still cannot be granted, the app likely needs Advanced Access / App Review for those permissions.' +
         declinedNote,

@@ -81,7 +81,7 @@ function buildAuthHeader(creds: WordPressApiCredentials): string {
   return `Basic ${Buffer.from(`${creds.consumerKey ?? ''}:${creds.consumerSecret ?? ''}`).toString('base64')}`;
 }
 
-/** WooCommerce payment gateway ids → Rabs Interiors payment methods. */
+/** WooCommerce payment gateway ids → ABS Interiors payment methods. */
 function mapPaymentMethod(method: string, title: string): ParsedPaymentMethod {
   const m = `${method ?? ''} ${title ?? ''}`.toLowerCase();
   if (m.includes('bacs') || m.includes('bank')) return 'bank_transfer';
@@ -136,7 +136,7 @@ function mapLine(item: WcLineItem): ParsedExternalOrderLine {
 
   return {
     sku: item.sku?.trim() || null,
-    // Prefer the variation id — that is what maps to a Rabs Interiors variant.
+    // Prefer the variation id — that is what maps to a ABS Interiors variant.
     externalProductId: String(item.variation_id || item.product_id || ''),
     name: item.name || item.sku || 'Web item',
     quantity,

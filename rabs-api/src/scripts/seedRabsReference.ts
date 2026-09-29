@@ -1,5 +1,5 @@
 /**
- * Idempotent reference-data seed for a fresh Rabs Interiors database.
+ * Idempotent reference-data seed for a fresh ABS Interiors database.
  * Creates the organization, system roles, SUPER_ADMIN user, UK chart of accounts,
  * VAT codes, CRM pipelines, customer tiers and HR leave policies. No demo data.
  *
@@ -25,10 +25,20 @@ import { CrmPipeline } from '../entities/crm/CrmPipeline.js';
 import { CrmStage } from '../entities/crm/CrmStage.js';
 import { CustomerTier } from '../entities/crm/CustomerTier.js';
 import { HrLeavePolicy } from '../entities/hr/HrLeavePolicy.js';
+import { CatalogItem } from '../entities/catalog/CatalogItem.js';
+import { CrmTag } from '../entities/crm/CrmTag.js';
 import { getOrCreateCrmSettings } from '../services/crm/crmSettings.service.js';
 
-const ORG_NAME = process.env.SEED_ORG_NAME || 'Rabs Interiors';
-const ORG_DOMAIN = process.env.SEED_ORG_DOMAIN || 'rabsinteriors.app';
+const ORG_NAME = process.env.SEED_ORG_NAME || 'ABS Interiors Ltd';
+const LEGACY_ORG_NAMES = ['Rabs Interiors', 'ABS Interiors'];
+const ORG_PROFILE = {
+  legalName: 'ABS Interiors Ltd',
+  phone: '+44 7568314656',
+  email: 'allan@absinteriors.co.uk',
+  website: 'https://absinteriors.co.uk',
+  logoUrl: process.env.SEED_ORG_LOGO_URL || 'https://rabsinteriors.app/brand/abs-logo.png'
+};
+const HQ_ADDRESS = { city: 'Glenrothes', stateProvince: 'Fife, Scotland', countryCode: 'GB' };
 const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'admin@rabsinteriors.app';
 const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || '';
 
@@ -146,6 +156,27 @@ const CUSTOMER_TIERS = [
   { tierName: 'Platinum', tierCode: 'PLATINUM', discountPercent: 15, prioritySupport: true, position: 4, minLifetimeValue: 15000, minOrders: 40 }
 ];
 
+const SERVICE_ITEMS: { sku: string; name: string; description: string }[] = [
+  { sku: 'SVC-KITCHENS', name: 'Kitchens', description: 'Fully fitted kitchens — design, supply and installation' },
+  { sku: 'SVC-BATHROOMS', name: 'Bathrooms', description: 'Fully fitted bathrooms and wet rooms' },
+  { sku: 'SVC-WARDROBES', name: 'Fitted Wardrobes', description: 'Made-to-measure fitted wardrobes' },
+  { sku: 'SVC-EXTENSIONS', name: 'Extensions', description: 'Home extensions' },
+  { sku: 'SVC-ATTIC', name: 'Attic Conversions', description: 'Attic and loft conversions' },
+  { sku: 'SVC-GARAGE', name: 'Garage Conversions', description: 'Garage conversions' },
+  { sku: 'SVC-JOINERY', name: 'Traditional Joinery', description: 'Traditional joinery and joiner works' },
+  { sku: 'SVC-FLOORING', name: 'Hardwood & Laminate Flooring', description: 'Hardwood and laminate flooring supply and fit' }
+];
+
+/** Lead interest options, applied to leads as CRM tags. */
+const LEAD_INTEREST_TAGS = [
+  'Fitted Kitchens',
+  'Fitted Bathrooms',
+  'Fitted Wardrobes',
+  'Extensions',
+  'Attic Conversions',
+  'Joiner Works'
+];
+
 const LEAVE_POLICIES: Array<{
   name: string;
   leaveType: HrLeavePolicy['leaveType'];
@@ -168,11 +199,16 @@ async function main() {
 
   const orgRepo = ds.getRepository(Organization);
   let org = await orgRepo.findOne({ where: { name: ORG_NAME } as any });
+  for (const legacy of LEGACY_ORG_NAMES) {
+    if (org) break;
+    org = await orgRepo.findOne({ where: { name: legacy } as any });
+  }
   if (!org) {
-    org = await orgRepo.save(
-      orgRepo.create({ name: ORG_NAME, legalName: ORG_NAME, website: `https://${ORG_DOMAIN}`, status: 'active' } as any) as any
-    );
+    org = await orgRepo.save(orgRepo.create({ name: ORG_NAME, ...ORG_PROFILE, status: 'active' } as any) as any);
     console.log('Created organization', org!.id);
+  } else {
+    await orgRepo.update({ id: org.id } as any, { name: ORG_NAME, ...ORG_PROFILE } as any);
+    console.log('Organization profile updated', org.id);
   }
   const orgId = String(org!.id);
 
@@ -180,9 +216,11 @@ async function main() {
   let bu = await buRepo.findOne({ where: { organization: { id: orgId }, code: 'BU-MAIN' } as any });
   if (!bu) {
     bu = await buRepo.save(
-      buRepo.create({ organization: org, code: 'BU-MAIN', name: 'Rabs Interiors', type: 'retail', status: 'active' } as any) as any
+      buRepo.create({ organization: org, code: 'BU-MAIN', name: 'ABS Interiors', type: 'retail', status: 'active' } as any) as any
     );
     console.log('Created business unit');
+  } else if ((bu as any).name !== ORG_NAME) {
+    await buRepo.update({ id: (bu as any).id } as any, { name: ORG_NAME } as any);
   }
 
   const locRepo = ds.getRepository(Location);
@@ -194,13 +232,18 @@ async function main() {
         code: 'HQ',
         name: 'Head Office',
         type: 'office',
-        countryCode: 'GB',
+        ...HQ_ADDRESS,
+        phone: ORG_PROFILE.phone,
+        email: ORG_PROFILE.email,
         timezone: 'Europe/London',
         isDefault: true,
         status: 'active'
       } as any)
     );
     console.log('Created head office location');
+  } else if (!existingLoc.city) {
+    await locRepo.update({ id: existingLoc.id } as any, { ...HQ_ADDRESS, phone: ORG_PROFILE.phone, email: ORG_PROFILE.email } as any);
+    console.log('Head office address updated');
   }
 
   const roleRepo = ds.getRepository(Role);
@@ -407,6 +450,37 @@ async function main() {
 
   await getOrCreateCrmSettings(orgId);
 
+  const catalogRepo = ds.getRepository(CatalogItem);
+  for (const svc of SERVICE_ITEMS) {
+    const existing = await catalogRepo
+      .createQueryBuilder('c')
+      .where('c.organization_id = :orgId', { orgId })
+      .andWhere('c.sku = :sku', { sku: svc.sku })
+      .withDeleted()
+      .getOne();
+    if (existing) continue;
+    await catalogRepo.save(
+      catalogRepo.create({
+        organization: org,
+        businessUnit: bu,
+        ...svc,
+        category: 'Services',
+        brand: ORG_NAME,
+        uom: 'job',
+        currency: 'GBP',
+        status: 'active'
+      } as any)
+    );
+  }
+  console.log('Service catalog items ready:', SERVICE_ITEMS.length);
+
+  const tagRepo = ds.getRepository(CrmTag);
+  for (const name of LEAD_INTEREST_TAGS) {
+    if (await tagRepo.findOne({ where: { organizationId: orgId, name } as any })) continue;
+    await tagRepo.save(tagRepo.create({ organizationId: orgId, name, color: '#E3070F' } as any));
+  }
+  console.log('Lead interest tags ready:', LEAD_INTEREST_TAGS.length);
+
   const policyRepo = ds.getRepository(HrLeavePolicy);
   for (const lp of LEAVE_POLICIES) {
     if (await policyRepo.findOne({ where: { organizationId: orgId, name: lp.name } as any })) continue;
@@ -415,7 +489,7 @@ async function main() {
   console.log('Leave policies ready:', LEAVE_POLICIES.length);
 
   await ds.destroy();
-  console.log('Rabs Interiors reference seed complete. Organization id:', orgId);
+  console.log('ABS Interiors reference seed complete. Organization id:', orgId);
 }
 
 main().catch(async (err) => {

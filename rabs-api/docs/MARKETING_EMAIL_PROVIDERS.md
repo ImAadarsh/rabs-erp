@@ -1,6 +1,6 @@
 # Marketing Email Providers
 
-Multi-provider marketing email for Rabs Interiors. Campaigns are provider-agnostic; connectors hold encrypted credentials per organization. **SendGrid** is the first-class mass-send provider; **Gmail SMTP** remains for cold / low-volume sends. Brevo, SES, and Mailchimp adapters are stubs until keys are configured and full APIs are wired.
+Multi-provider marketing email for ABS Interiors. Campaigns are provider-agnostic; connectors hold encrypted credentials per organization. **SendGrid** is the first-class mass-send provider; **Gmail SMTP** remains for cold / low-volume sends. Brevo, SES, and Mailchimp adapters are stubs until keys are configured and full APIs are wired.
 
 **Never commit real API keys.** Prefer per-org connectors in the DB. Optional `SENDGRID_API_KEY` is a global fallback only.
 
@@ -26,7 +26,7 @@ Interface: `src/services/marketing/email/EmailProvider.ts`
 # Prefer connector credentials in DB. These are fallbacks only.
 SENDGRID_API_KEY=
 SENDGRID_FROM_EMAIL=noreply@yourdomain.com
-SENDGRID_FROM_NAME=Rabs Interiors
+SENDGRID_FROM_NAME=ABS Interiors
 # Webhook verify (set at least one in production)
 SENDGRID_WEBHOOK_SECRET=long-random-string
 # Or Signed Event Webhook public key (PEM / base64)
@@ -62,7 +62,7 @@ Content-Type: application/json
   "credentials": {
     "apiKey": "SG.xxxx",
     "fromEmail": "noreply@yourdomain.com",
-    "fromName": "Rabs Interiors"
+    "fromName": "ABS Interiors"
   }
 }
 ```
@@ -74,7 +74,7 @@ Content-Type: application/json
 **Env-ref credentials** (use server env instead of storing the key):
 
 ```json
-{ "useEnv": true, "fromEmail": "noreply@yourdomain.com", "fromName": "Rabs Interiors" }
+{ "useEnv": true, "fromEmail": "noreply@yourdomain.com", "fromName": "ABS Interiors" }
 ```
 
 Requires `SENDGRID_API_KEY` on the API host (e.g. `/var/www/rabs-api/.env`). Still do **not** put the key in git.
@@ -121,7 +121,7 @@ Create / update body extras:
   "subject": "Hello",
   "htmlBody": "<p>…</p>",
   "builderJson": "{\"blocks\":[]}",
-  "fromName": "Rabs Interiors",
+  "fromName": "ABS Interiors",
   "replyTo": "support@yourdomain.com",
   "connectorId": "1",
   "audienceType": "crm_leads",

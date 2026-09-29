@@ -9,7 +9,7 @@ function makeCode(customer: Customer): string {
     .replace(/[^A-Z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 18);
-  return `RABS-REF-${base || customer.id}`;
+  return `ABS-REF-${base || customer.id}`;
 }
 
 export async function getOrCreateReferral(opts: { orgId: string; customerId: string }) {

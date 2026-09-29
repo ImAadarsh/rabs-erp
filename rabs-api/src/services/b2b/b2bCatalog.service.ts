@@ -238,7 +238,7 @@ function mapItem(
     id: item.id,
     sku: item.sku,
     name: item.name,
-    brand: item.brand || 'Rabs Interiors',
+    brand: item.brand || 'ABS Interiors',
     category: item.category ? slugify(item.category) : 'general',
     subCategory: item.subCategory ? slugify(item.subCategory) : '',
     description: item.description || item.longDescription || '',
@@ -339,7 +339,7 @@ export function mapCustomerToProfile(customer: Customer, settings?: B2bPortalSet
     id: customer.id,
     companyName: customer.companyName || `${customer.firstName ?? ''} ${customer.lastName ?? ''}`.trim() || 'Retailer',
     tradingName: customer.companyName || `${customer.firstName ?? ''} ${customer.lastName ?? ''}`.trim() || 'Retailer',
-    accountNumber: customer.customerNumber || `RABS-${customer.id}`,
+    accountNumber: customer.customerNumber || `ABS-${customer.id}`,
     vatNumber: customer.taxId || '',
     contactName: `${customer.firstName ?? ''} ${customer.lastName ?? ''}`.trim() || customer.email || 'Retailer',
     email: customer.email || '',
@@ -355,7 +355,7 @@ export function mapCustomerToProfile(customer: Customer, settings?: B2bPortalSet
       country: addr?.countryCode || 'GB'
     },
     assignedRep: {
-      name: settings?.assignedRepName || 'Rabs Interiors Trade Desk',
+      name: settings?.assignedRepName || 'ABS Interiors Trade Desk',
       phone: settings?.assignedRepPhone || '',
       email: settings?.assignedRepEmail || ''
     }

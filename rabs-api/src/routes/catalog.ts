@@ -151,7 +151,7 @@ catalogRouter.post('/import-channels/api/execute', requireRoles('ADMIN', 'SUPER_
 catalogRouter.get('/import-channels/jobs', requireRoles('ADMIN', 'SUPER_ADMIN'), ProductImportController.listJobs);
 catalogRouter.get('/import-channels/jobs/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), ProductImportController.getJob);
 
-// Inventory Excel seed import (Rabs Interiors inventory sheet)
+// Inventory Excel seed import (ABS Interiors inventory sheet)
 catalogRouter.post('/inventory-import/preview', requireRoles('ADMIN', 'SUPER_ADMIN'), uploadExcel, InventoryExcelImportController.preview);
 catalogRouter.post('/inventory-import/execute', requireRoles('ADMIN', 'SUPER_ADMIN'), uploadExcel, InventoryExcelImportController.execute);
 

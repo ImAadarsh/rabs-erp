@@ -1,5 +1,5 @@
 /**
- * Rabs Interiors catalog → Good Till EPOS export / sync service.
+ * ABS Interiors catalog → Good Till EPOS export / sync service.
  */
 
 import { AppDataSource } from '@config/data-source.js';
@@ -183,7 +183,7 @@ function diffProduct(
 }
 
 /**
- * Push or sync Rabs Interiors catalog items to Good Till EPOS.
+ * Push or sync ABS Interiors catalog items to Good Till EPOS.
  * - push: create products that don't exist in EPOS yet (skip existing)
  * - sync: create missing + update name/description/price/stock/barcode when changed
  */

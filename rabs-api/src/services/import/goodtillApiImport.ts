@@ -1,5 +1,5 @@
 /**
- * Good Till → Rabs Interiors catalog import mappers.
+ * Good Till → ABS Interiors catalog import mappers.
  */
 
 import type { ParsedProduct, ParsedVariant } from './types.js';

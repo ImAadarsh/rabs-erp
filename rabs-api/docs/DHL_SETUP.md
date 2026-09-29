@@ -1,4 +1,4 @@
-# DHL Express (MyDHL API) setup for Rabs Interiors
+# DHL Express (MyDHL API) setup for ABS Interiors
 
 ## Auth that works
 
@@ -16,7 +16,7 @@ Base URLs:
 | Test / sandbox | `https://express.api.dhl.com/mydhlapi/test` |
 | Production | `https://express.api.dhl.com/mydhlapi` |
 
-Products used by Rabs Interiors:
+Products used by ABS Interiors:
 
 - **Shipment** — `POST /shipments` (create + label PDF)
 - **Tracking** — `GET /shipments/{trackingNumber}/tracking`
