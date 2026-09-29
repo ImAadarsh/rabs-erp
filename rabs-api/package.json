@@ -22,7 +22,11 @@
     "migrate:015": "tsx src/scripts/runMigration015.ts",
     "migrate:016": "tsx src/scripts/runMigration016.ts",
     "migrate:017": "tsx src/scripts/runMigration017.ts",
-    "migrate:018": "tsx src/scripts/runMigration018.ts"
+    "migrate:018": "tsx src/scripts/runMigration018.ts",
+    "migrate:019": "tsx src/scripts/runMigration019.ts",
+    "seed:rabs-workflow": "tsx src/scripts/seedRabsWorkflow.ts",
+    "test:rabs": "tsx src/scripts/testRabsCalc.ts",
+    "e2e:rabs": "tsx src/scripts/e2eRabsJourney.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.936.0",

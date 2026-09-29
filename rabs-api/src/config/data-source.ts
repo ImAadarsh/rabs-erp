@@ -178,6 +178,7 @@ import { PmMilestone } from '@entities/pm/PmMilestone.js';
 import { PmScheduleBlock } from '@entities/pm/PmScheduleBlock.js';
 import { PmProjectMember } from '@entities/pm/PmProjectMember.js';
 import { OrderShipment } from '@entities/fulfillment/OrderShipment.js';
+import { RABS_ENTITIES } from '@entities/rabs/RabsEntities.js';
 
 export const AppDataSource = new DataSource({
   type: 'mysql',
@@ -220,7 +221,8 @@ export const AppDataSource = new DataSource({
     B2bCreditRequest, B2bRetailerBuyer, B2bCreditLedger,
     PmProject, PmDeliverable, PmWorkStage, PmWorkOrder, PmTask, PmTaskDependency,
     PmMilestone, PmScheduleBlock, PmProjectMember,
-    OrderShipment
+    OrderShipment,
+    ...RABS_ENTITIES
   ],
   migrations: []
 });

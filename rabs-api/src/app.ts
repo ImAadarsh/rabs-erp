@@ -17,6 +17,8 @@ import { b2bRouter } from './routes/b2b.js';
 import { integrationsRouter } from './routes/integrations.js';
 import { pmRouter } from './routes/pm.js';
 import { fulfillmentRouter } from './routes/fulfillment.js';
+import { rabsRouter } from './routes/rabs.js';
+import { UPLOADS_ROOT } from './services/rabs/rabsCore.js';
 
 const app = express();
 
@@ -90,6 +92,10 @@ apiRouter.use('/b2b', b2bRouter);
 apiRouter.use('/integrations', integrationsRouter);
 apiRouter.use('/pm', pmRouter);
 apiRouter.use('/fulfillment', fulfillmentRouter);
+apiRouter.use('/rabs', rabsRouter);
+
+// Local file storage fallback (used when S3 is not configured)
+app.use('/uploads', express.static(UPLOADS_ROOT, { maxAge: '30d', index: false, dotfiles: 'deny' }));
 
 // Register base API router
 app.use('/api', apiRouter);
