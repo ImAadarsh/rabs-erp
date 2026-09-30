@@ -1,9 +1,13 @@
 import {
   Shield, Boxes, Package2, ShoppingCart, Truck, Wallet, Landmark,
-  Users, Headset, Megaphone, Share2, BarChart3, Settings, Store, FolderKanban
+  Users, Headset, Megaphone, Share2, BarChart3, Settings, Store, FolderKanban, Ruler
 } from 'lucide-react';
 
 export const modules = [
+  {
+    slug: 'rabs', name: 'RABS Jobs (Enquiry → Fitting)', icon: Ruler, color: '#A31F24',
+    description: 'Enquiries, measuring, quotes, deposits, fitting, invoices'
+  },
   {
     slug: 'iam', name: 'Identity & Access', icon: Shield, color: '#A31F24',
     description: 'Users, Roles, API Keys, Audit'

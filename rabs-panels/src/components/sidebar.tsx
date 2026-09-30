@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { Shield, Users, KeySquare, FileClock, LayoutDashboard, Grid, LogOut, X, ArrowLeftRight, User, Building2, Package2, Tag, DollarSign, Receipt, Package, Share2, FileText, Image as ImageIcon, Warehouse, Boxes, ShoppingCart, Truck, PackageSearch, ClipboardList, ArrowRightLeft, TrendingUp, RotateCcw, Landmark, BookOpen, Coins, Calendar, FileText as FileTextIcon, Wallet, CreditCard, FileCheck, BarChart, Clock, Briefcase, CheckSquare, MessageSquare, Star, Megaphone, Video, Mic, Gift, Ticket, Percent, BarChart3, CalendarClock, Download, MapPin, Settings, Upload, Globe, FileSpreadsheet, Store, PenLine, Inbox, LineChart, AtSign, Target, Columns3, PhoneCall, Plug, Mail, FolderKanban, Flag, ShieldCheck, PiggyBank, UserCheck, History, Paperclip, Calculator, Banknote, Building } from 'lucide-react';
+import { Shield, Users, KeySquare, FileClock, LayoutDashboard, Grid, LogOut, X, ArrowLeftRight, User, Building2, Package2, Tag, DollarSign, Receipt, Package, Share2, FileText, Image as ImageIcon, Warehouse, Boxes, ShoppingCart, Truck, PackageSearch, ClipboardList, ArrowRightLeft, TrendingUp, RotateCcw, Landmark, BookOpen, Coins, Calendar, FileText as FileTextIcon, Wallet, CreditCard, FileCheck, BarChart, Clock, Briefcase, CheckSquare, MessageSquare, Star, Megaphone, Video, Mic, Gift, Ticket, Percent, BarChart3, CalendarClock, Download, MapPin, Settings, Upload, Globe, FileSpreadsheet, Store, PenLine, Inbox, LineChart, AtSign, Target, Columns3, PhoneCall, Plug, Mail, FolderKanban, Flag, ShieldCheck, PiggyBank, UserCheck, History, Paperclip, Calculator, Banknote, Building, Ruler } from 'lucide-react';
 import { BrandWordmark } from '@/components/brand-wordmark';
 import { usePathname, useRouter } from 'next/navigation';
 import { clearSession } from '@/lib/auth';
@@ -75,6 +75,7 @@ export function Sidebar() {
         <div className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent mx-2 mb-4" />
         <nav className="space-y-1.5 flex-1 overflow-y-auto pr-1 scrollbar-none">
           <Item href="/dashboard" icon={<LayoutDashboard size={20} />} label="Global Dashboard" active={pathname === '/dashboard'} />
+          <Item href="/rabs" icon={<Ruler size={20} />} label="RABS Jobs" active={pathname?.startsWith('/rabs')} />
           {isIAM && (
             <>
               <div className="mt-6 mb-2 flex items-center gap-2 px-3">
@@ -442,6 +443,7 @@ export function Sidebar() {
             <div className="h-px bg-white/10 mx-2 mb-4" />
             <nav className="space-y-1.5 flex-1 overflow-y-auto pr-1">
               <Item href="/dashboard" icon={<LayoutDashboard size={20} />} label="Global Dashboard" active={pathname === '/dashboard'} />
+              <Item href="/rabs" icon={<Ruler size={20} />} label="RABS Jobs" active={pathname?.startsWith('/rabs')} />
               {isIAM && (
                 <>
                   <div className="mt-6 mb-2 flex items-center gap-2 px-3">

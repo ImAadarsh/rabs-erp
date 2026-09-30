@@ -1,15 +1,12 @@
 'use client';
+
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getSession } from '@/lib/auth';
 
-export default function Home() {
+export default function RabsDashboardRedirect() {
   const router = useRouter();
   useEffect(() => {
-    const s = getSession();
-    router.replace(s?.accessToken ? '/rabs' : '/login');
+    router.replace('/rabs');
   }, [router]);
   return null;
 }
-
-
