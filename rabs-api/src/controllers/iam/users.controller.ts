@@ -75,8 +75,12 @@ export class UsersController {
       return;
     }
 
-    // Use provided password or default password
-    const password = parsed.data.password || '<DEFAULT_USER_PASSWORD>';
+    // Use provided password or the server-configured default
+    const password = parsed.data.password || process.env.DEFAULT_USER_PASSWORD || '';
+    if (password.length < 8) {
+      res.status(400).json({ error: { message: 'Password is required (min 8 characters)' } });
+      return;
+    }
     const passwordHash = await hashPassword(password);
 
     const repo = AppDataSource.getRepository(User);
