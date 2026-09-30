@@ -17,8 +17,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# SSH_HOST (and optional overrides) come from the environment or ../.deploy.env (gitignored).
+[[ -f "$SCRIPT_DIR/../.deploy.env" ]] && source "$SCRIPT_DIR/../.deploy.env"
+
 ssh_user="${SSH_USER:-root}"
-ssh_host="${SSH_HOST:-<VPS_HOST>}"
+ssh_host="${SSH_HOST:-}"
 ssh_key="${SSH_KEY:-$HOME/.ssh/id_ed25519_hostinger}"
 app_dir="${APP_DIR:-/var/www/rabs-panels}"
 process_name="${PROCESS_NAME:-rabs-panels}"
@@ -34,6 +37,7 @@ ssh_base_opts=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -i "$ssh
 log() { printf '==> %s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
+[[ -n "$ssh_host" ]] || die "SSH_HOST not set (export it or add it to ../.deploy.env)"
 [[ -f "$ssh_key" ]] || die "SSH key not found: ${ssh_key}"
 
 remote() {

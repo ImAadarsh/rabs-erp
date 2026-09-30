@@ -60,7 +60,7 @@ export default function UsersPage() {
     businessUnitId: '',
     locationId: '',
     roleId: '',
-    password: '<DEFAULT_USER_PASSWORD>'
+    password: ''
   });
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [businessUnits, setBusinessUnits] = useState<any[]>([]);
@@ -162,7 +162,7 @@ export default function UsersPage() {
         businessUnitId: '',
         locationId: '',
         roleId: '',
-        password: '<DEFAULT_USER_PASSWORD>'
+        password: ''
       });
       toast.success('User created');
     } catch (e: any) {
@@ -529,10 +529,10 @@ export default function UsersPage() {
                         type="password"
                         value={form.password} 
                         onChange={(e) => setForm({ ...form, password: e.target.value })} 
-                        placeholder="<DEFAULT_USER_PASSWORD>"
+                        placeholder="Leave empty to use the default password"
                       />
                       <p className="text-xs text-muted-foreground mt-1">
-                        Default password: <DEFAULT_USER_PASSWORD> (leave empty to use default)
+                        Leave empty to use the organisation&apos;s default password (set by an administrator)
                       </p>
                     </div>
                   </div>
@@ -551,7 +551,7 @@ export default function UsersPage() {
                           businessUnitId: '',
                           locationId: '',
                           roleId: '',
-                          password: '<DEFAULT_USER_PASSWORD>'
+                          password: ''
                         });
                       }}
                     >
