@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS channel_connections (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    organization_id BIGINT UNSIGNED NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    channel ENUM('shopify', 'woocommerce') NOT NULL DEFAULT 'woocommerce',
+    store_url VARCHAR(500) NULL,
+    shop_domain VARCHAR(255) NULL,
+    credentials_encrypted TEXT NOT NULL,
+    key_hint VARCHAR(32) NULL,
+    status ENUM('active', 'inactive') DEFAULT 'active',
+    last_tested_at TIMESTAMP NULL,
+    last_test_ok BOOLEAN NULL,
+    last_test_message VARCHAR(500) NULL,
+    created_by BIGINT UNSIGNED NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_org_channel (organization_id, channel),
+    INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

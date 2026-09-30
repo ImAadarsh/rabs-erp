@@ -1,0 +1,32 @@
+-- DHL / multi-channel order shipments (idempotent-friendly)
+
+CREATE TABLE IF NOT EXISTS order_shipments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NOT NULL,
+  order_id BIGINT UNSIGNED NOT NULL,
+  carrier VARCHAR(64) NOT NULL DEFAULT 'DHL',
+  service_code VARCHAR(32) NULL,
+  tracking_number VARCHAR(64) NULL,
+  label_url VARCHAR(1000) NULL,
+  label_s3_key VARCHAR(500) NULL,
+  status ENUM('draft', 'created', 'label_ready', 'in_transit', 'delivered', 'cancelled', 'failed') NOT NULL DEFAULT 'draft',
+  carrier_status VARCHAR(255) NULL,
+  weight_kg DECIMAL(10, 3) NULL,
+  pieces INT NOT NULL DEFAULT 1,
+  planned_pickup_at TIMESTAMP NULL,
+  dispatched_at TIMESTAMP NULL,
+  delivered_at TIMESTAMP NULL,
+  cancelled_at TIMESTAMP NULL,
+  last_error TEXT NULL,
+  raw_create_response JSON NULL,
+  raw_tracking JSON NULL,
+  notes TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_order_shipments_order (order_id),
+  KEY idx_order_shipments_tracking (tracking_number),
+  KEY idx_order_shipments_org (organization_id),
+  CONSTRAINT fk_order_shipments_org FOREIGN KEY (organization_id) REFERENCES organizations (id),
+  CONSTRAINT fk_order_shipments_order FOREIGN KEY (order_id) REFERENCES orders (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
