@@ -1,0 +1,191 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* RABS brand: deep crimson (#A31F24 / #8E1B1F) with gold (#D4AF37) / orange (#E8A33D) accents on dark charcoal (RGB channels) */
+    --brand-50: 253 243 243;
+    --brand-100: 251 228 229;
+    --brand-200: 245 199 201;
+    --brand-300: 234 150 153;
+    --brand-400: 209 84 89;
+    --brand-500: 163 31 36;
+    --brand-600: 142 27 31;
+    --brand-700: 117 22 26;
+    --brand-800: 92 17 20;
+    --brand-900: 64 12 14;
+    --brand-950: 38 7 8;
+    --brand-ink: 20 17 17;
+    --brand-charcoal: 38 34 34;
+    --gold-400: 232 163 61;
+    --gold-500: 212 175 55;
+
+    --background: 0 0% 100%;
+    --foreground: 0 0% 7%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 7%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 7%;
+    --primary: 358 68% 38%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 42%;
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 60 9.1% 97.8%;
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 358 68% 38%;
+    --radius: 0.75rem;
+    
+    --ease: cubic-bezier(.22,.61,.36,1);
+  }
+
+  .dark {
+    --background: 0 0% 6%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 8%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 8%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 358 57% 49%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 64%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 60 9.1% 97.8%;
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
+    --ring: 358 57% 49%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased font-sans;
+  }
+}
+
+.app-surface {
+  @apply min-h-screen bg-background relative overflow-hidden;
+}
+
+.app-surface::before {
+  content: '';
+  position: absolute;
+  top: -20%;
+  left: -10%;
+  width: 50%;
+  height: 50%;
+  background: radial-gradient(circle, rgba(163,31,36,0.08) 0%, transparent 70%);
+  filter: blur(60px);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.app-surface::after {
+  content: '';
+  position: absolute;
+  bottom: -20%;
+  right: -10%;
+  width: 50%;
+  height: 50%;
+  background: radial-gradient(circle, rgba(163,31,36,0.05) 0%, transparent 70%);
+  filter: blur(60px);
+  z-index: 0;
+  pointer-events: none;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center rounded-xl text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 h-10 px-4 py-2;
+}
+
+.btn-primary {
+  @apply bg-zaam-500 text-white hover:bg-zaam-600 shadow-lg shadow-zaam-500/20 hover:shadow-zaam-500/30 active:scale-[0.98];
+}
+
+.btn-ghost {
+  @apply bg-transparent hover:bg-accent hover:text-accent-foreground text-muted-foreground;
+}
+
+.btn-outline {
+  @apply border border-input bg-background hover:bg-accent hover:text-accent-foreground;
+}
+
+.card {
+  @apply bg-card/80 backdrop-blur-xl rounded-card border border-border/50 shadow-card transition-all duration-300 hover:shadow-elev-2;
+}
+
+.input {
+  @apply flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200;
+}
+
+.select {
+  @apply flex h-10 w-full items-center justify-between rounded-xl border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+/* Table Styles */
+.table-shell {
+  @apply w-full overflow-auto rounded-card border border-border bg-card/50 backdrop-blur-sm shadow-sm;
+}
+
+.table-head {
+  @apply h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 bg-muted/50;
+}
+
+.table-row {
+  @apply border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted;
+}
+
+.table-cell {
+  @apply p-4 align-middle [&:has([role=checkbox])]:pr-0;
+}
+
+
+/* Printable documents (invoices, transfer receipts).
+   Everything outside the sheet is hidden so the browser prints the document
+   alone, on A4, without the app chrome. */
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  body {
+    background: #ffffff;
+  }
+
+  body :not(:has(.print-sheet)):not(.print-sheet):not(.print-sheet *) {
+    visibility: hidden;
+  }
+
+  .print-sheet,
+  .print-sheet * {
+    visibility: visible;
+  }
+
+  .print-sheet {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 210mm;
+    margin: 0;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}
