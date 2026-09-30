@@ -328,6 +328,17 @@ rabsRouter.get('/reports/purchasing', h((ctx) => V.reportPurchasing(ctx)));
 
 // ---- Admin -----------------------------------------------------------------------------------------
 
+rabsRouter.use('/admin', async (req: Request, res: Response, next: NextFunction) => {
+  if (req.method === 'GET') return next();
+  try {
+    requireCap(await buildCtx(req), 'admin');
+    next();
+  } catch (err: any) {
+    const status = err instanceof HttpError ? err.status : 500;
+    res.status(status).json({ error: { message: status >= 500 ? 'Something went wrong. Please try again.' : err.message, status } });
+  }
+});
+
 rabsRouter.get('/admin/settings', h((ctx) => A.getAdminSettings(ctx)));
 rabsRouter.put(
   '/admin/settings',
