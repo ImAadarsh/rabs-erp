@@ -152,7 +152,7 @@ const JOB_SELECT = `
          j.requires_fitting requiresFitting, j.requires_delivery requiresDelivery,
          c.id customerId, c.name customerName, c.phone customerPhone, c.postcode, CONCAT_WS(', ', c.address_line1, c.city, c.postcode) address,
          (SELECT MIN(a.scheduled_at) FROM rabs_appointments a WHERE a.job_id = j.id AND a.status = 'booked') nextAppointment,
-         (SELECT MIN(b.scheduled_date) FROM rabs_bookings b WHERE b.job_id = j.id AND b.status IN ('booked','in_progress')) nextBooking,
+         (SELECT DATE_FORMAT(MIN(b.scheduled_date), '%Y-%m-%d') FROM rabs_bookings b WHERE b.job_id = j.id AND b.status IN ('booked','in_progress')) nextBooking,
          (SELECT q.quote_number FROM rabs_quotes q WHERE q.job_id = j.id ORDER BY q.id DESC LIMIT 1) quoteNumber,
          (SELECT q.total FROM rabs_quotes q WHERE q.job_id = j.id ORDER BY q.id DESC LIMIT 1) quoteTotal,
          (SELECT i.invoice_number FROM rabs_invoices i WHERE i.job_id = j.id LIMIT 1) invoiceNumber
@@ -356,7 +356,7 @@ export async function reportSchedule(ctx: Ctx, from?: string, to?: string) {
   const t = to && /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : new Date(Date.now() + 13 * 86400000).toISOString().slice(0, 10);
   const staffFilter = isOfficeUser(ctx) ? '' : ' AND b.staff_user_id = ?';
   const rows = await AppDataSource.query(
-    `SELECT b.id, b.job_id jobId, b.type, b.scheduled_date scheduledDate, b.slot, b.status, b.staff_user_id staffUserId,
+    `SELECT b.id, b.job_id jobId, b.type, DATE_FORMAT(b.scheduled_date, '%Y-%m-%d') scheduledDate, b.slot, b.status, b.staff_user_id staffUserId,
             TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,''))) staffName,
             j.job_number jobNumber, c.name customerName, c.phone customerPhone, CONCAT_WS(', ', c.address_line1, c.city, c.postcode) address
        FROM rabs_bookings b JOIN rabs_jobs j ON j.id = b.job_id JOIN rabs_customers c ON c.id = j.rabs_customer_id LEFT JOIN users u ON u.id = b.staff_user_id
@@ -376,7 +376,7 @@ export async function reportPurchasing(ctx: Ctx) {
   return AppDataSource.query(
     `SELECT m.id, m.job_id jobId, j.job_number jobNumber, c.name customerName, m.description, m.unit, m.qty_required qtyRequired, m.qty_reserved qtyReserved,
             m.qty_short qtyShort, m.status, p.supplier, p.code productCode,
-            (SELECT MIN(b.scheduled_date) FROM rabs_bookings b WHERE b.job_id = j.id AND b.status IN ('booked','in_progress')) neededBy
+            (SELECT DATE_FORMAT(MIN(b.scheduled_date), '%Y-%m-%d') FROM rabs_bookings b WHERE b.job_id = j.id AND b.status IN ('booked','in_progress')) neededBy
        FROM rabs_material_items m JOIN rabs_jobs j ON j.id = m.job_id JOIN rabs_customers c ON c.id = j.rabs_customer_id
        LEFT JOIN rabs_products p ON p.id = m.product_id
       WHERE m.organization_id = ? AND m.status IN ('to_order','ordered') ORDER BY neededBy IS NULL, neededBy, m.id`,

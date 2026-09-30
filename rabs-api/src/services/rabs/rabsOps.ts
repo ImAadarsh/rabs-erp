@@ -464,7 +464,7 @@ export async function myWork(ctx: Ctx, scope: 'today' | 'upcoming' | 'all' = 'up
   const today = todayISO();
   const where = scope === 'today' ? 'b.scheduled_date = ?' : scope === 'upcoming' ? "(b.scheduled_date >= ? OR b.status = 'in_progress')" : '1=1 OR ? IS NULL';
   return AppDataSource.query(
-    `SELECT b.id, b.job_id jobId, b.type, b.scheduled_date scheduledDate, b.slot, b.status, b.instructions,
+    `SELECT b.id, b.job_id jobId, b.type, DATE_FORMAT(b.scheduled_date, '%Y-%m-%d') scheduledDate, b.slot, b.status, b.instructions,
             j.job_number jobNumber, j.status jobStatus, c.name customerName, c.phone customerPhone,
             COALESCE(j.site_address, CONCAT_WS(', ', c.address_line1, c.address_line2, c.city, c.postcode)) address
        FROM rabs_bookings b
