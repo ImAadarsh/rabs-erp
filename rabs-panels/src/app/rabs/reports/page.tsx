@@ -7,7 +7,7 @@ import { useSearchParams } from 'next/navigation';
 import { useRabs } from '@/components/rabs/shell';
 import { Card, Empty, Field, Spinner, StatusBadge, Tabs, inputCls } from '@/components/rabs/ui';
 import { JobRow } from '@/components/rabs/job-row';
-import { rabs, errMsg, gbp, num, fmtDate, isoDay, addDays } from '@/lib/rabs-api';
+import { rabs, errMsg, gbp, num, fmtDate, isoDay, addDays, UNIT_LABEL } from '@/lib/rabs-api';
 
 type Tab = 'pipeline' | 'sales' | 'outstanding' | 'schedule' | 'purchasing';
 
@@ -224,7 +224,7 @@ function Purchasing() {
             <span className="block text-xs text-muted-foreground">{r.customerName}</span>
           </span>,
           r.supplier || '—',
-          `${num(r.qtyShort)} ${r.unit === 'm2' ? 'm²' : r.unit}`,
+          `${num(r.qtyShort)} ${UNIT_LABEL[r.unit] || r.unit}`,
           <StatusBadge key="s" size="sm" label={String(r.status).replace('_', ' ')} color={r.status === 'ordered' ? '#F59E0B' : '#DC2626'} />,
           r.neededBy ? fmtDate(r.neededBy) : 'Not booked'
         ])}

@@ -12,7 +12,7 @@ import { useRabs } from '@/components/rabs/shell';
 import { Btn, Card, Empty, NextActionButton, ProgressBar, Row, Spinner, StatusBadge } from '@/components/rabs/ui';
 import { AcceptModal, AppointmentModal, BookingModal, CloseModal, CustomerModal, IssueModal, PaymentModal, VariationModal } from '@/components/rabs/job-modals';
 import { Thumbs } from '@/components/rabs/thumbs';
-import { rabs, errMsg, gbp, fmtDate, fmtDateTime, num } from '@/lib/rabs-api';
+import { rabs, errMsg, gbp, fmtDate, fmtDateTime, num, UNIT_LABEL } from '@/lib/rabs-api';
 
 type ModalKind =
   | null
@@ -385,7 +385,7 @@ export default function JobPage() {
                       <div className="min-w-0">
                         <div className="font-semibold truncate">{m.description}</div>
                         <div className="text-xs text-muted-foreground">
-                          Need {num(m.qtyRequired)} {m.unit === 'm2' ? 'm²' : m.unit} · reserved {num(m.qtyReserved)}
+                          Need {num(m.qtyRequired)} {UNIT_LABEL[m.unit] || m.unit} · reserved {num(m.qtyReserved)}
                           {m.qtyShort > 0 ? ` · short ${num(m.qtyShort)}` : ''}
                         </div>
                       </div>
