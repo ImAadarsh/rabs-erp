@@ -60,7 +60,11 @@ const LABELS: Record<string, string> = {
 };
 function friendlyZod(field: string, msg?: string) {
   const key = field.split('.').pop() || field;
-  return `${LABELS[key] ?? key}: ${msg ?? 'is not valid'}`;
+  let text = msg ?? 'is not valid';
+  if (/received nan|expected number/i.test(text)) text = 'must be a number';
+  else if (/^required$/i.test(text)) text = 'is required';
+  else if (/^expected (string|boolean)/i.test(text)) text = 'is not valid';
+  return `${LABELS[key] ?? key}: ${text}`;
 }
 
 const parse = <T extends ZodTypeAny>(schema: T, data: unknown): z.infer<T> => schema.parse(data ?? {});
@@ -396,3 +400,9 @@ rabsRouter.post(
 );
 rabsRouter.patch('/admin/staff/:id/role', h((ctx, req) => A.setStaffRole(ctx, id(req), parse(z.object({ roleCode: z.string().min(2).max(50) }), req.body).roleCode)));
 rabsRouter.get('/admin/check', h(async (ctx) => (requireCap(ctx, 'admin'), { ok: true })));
+rabsRouter.delete(
+  '/admin/jobs/:id',
+  h((ctx, req) =>
+    O.deleteJob(ctx, id(req), parse(z.object({ confirm: z.string().trim().min(1, 'type the job number to confirm').max(40), reason: optStr(255), deleteCustomer: z.boolean().optional() }), req.body))
+  )
+);

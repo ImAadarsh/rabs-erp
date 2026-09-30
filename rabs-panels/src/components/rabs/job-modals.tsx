@@ -208,31 +208,140 @@ export function BookingModal({ open, onClose, job, onDone, type, existing }: Bas
   );
 }
 
+const CARRIED_FORWARD = [
+  'Customer and address',
+  'Rooms and measurements',
+  'Products and quantities',
+  'Accessories',
+  'Prices (this approved version)',
+  'Deposit and payment details',
+  'Notes and photos',
+  'Fitting / delivery needs'
+];
+
+function ConvertQuestion({ jobNumber }: { jobNumber: string }) {
+  return (
+    <div className="rounded-xl border-2 border-emerald-600/40 bg-emerald-50 dark:bg-emerald-950/30 p-4">
+      <div className="text-lg font-extrabold">Convert this quotation into a job?</div>
+      <p className="text-sm text-muted-foreground mt-1">Job {jobNumber} keeps its number. Nothing needs typing again — these come across automatically:</p>
+      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 mt-2 text-sm">
+        {CARRIED_FORWARD.map((t) => (
+          <li key={t} className="flex items-center gap-2">
+            <span className="text-emerald-700 font-bold">✓</span> {t}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function QuoteSummary({ quote }: { quote: any }) {
+  return (
+    <div className="rounded-xl bg-muted p-4 text-center">
+      <div className="text-sm text-muted-foreground">
+        {quote.quoteNumber} · v{quote.version}
+      </div>
+      {quote.total !== undefined && <div className="text-3xl font-extrabold mt-1">{gbp(quote.total)}</div>}
+      {quote.depositRequired > 0 && <div className="text-sm mt-1">Deposit to confirm: {gbp(quote.depositRequired)}</div>}
+    </div>
+  );
+}
+
 export function AcceptModal({ open, onClose, job, onDone, quote, customerName }: Base & { quote: any; customerName: string }) {
   const [name, setName] = useState(customerName || '');
   const { busy, run } = useSubmit(onDone, onClose);
+  const accept = (convert: boolean) =>
+    run(() => rabs.post(`/quotes/${quote.id}/accept`, { acceptedByName: name || null, convert }), convert ? `Quote accepted — job ${job.jobNumber} created` : 'Quote accepted');
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="Customer accepts quote"
       footer={
-        <Btn variant="success" size="lg" loading={busy} onClick={() => run(() => rabs.post(`/quotes/${quote.id}/accept`, { acceptedByName: name || null, convert: true }), 'Quote accepted — job created')}>
-          ACCEPT & CREATE JOB
-        </Btn>
+        <>
+          <Btn variant="secondary" size="lg" loading={busy} onClick={() => accept(false)}>
+            Accept only
+          </Btn>
+          <Btn variant="success" size="lg" loading={busy} onClick={() => accept(true)}>
+            YES — CREATE JOB
+          </Btn>
+        </>
       }
     >
-      <div className="rounded-xl bg-muted p-4 text-center">
-        <div className="text-sm text-muted-foreground">
-          {quote.quoteNumber} · v{quote.version}
-        </div>
-        {quote.total !== undefined && <div className="text-3xl font-extrabold mt-1">{gbp(quote.total)}</div>}
-        {quote.depositRequired > 0 && <div className="text-sm mt-1">Deposit to confirm: {gbp(quote.depositRequired)}</div>}
-      </div>
+      <QuoteSummary quote={quote} />
       <Field label="Accepted by">
         <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
-      <p className="text-sm text-muted-foreground">Prices are locked, the measurement is frozen and job {job.jobNumber} moves to the deposit step.</p>
+      <ConvertQuestion jobNumber={job.jobNumber} />
+      <p className="text-xs text-muted-foreground">Accepting locks these prices and the measurement. Later price changes never alter this quote.</p>
+    </Modal>
+  );
+}
+
+export function ConvertModal({ open, onClose, job, onDone, quote }: Base & { quote: any }) {
+  const { busy, run } = useSubmit(onDone, onClose);
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Create job"
+      footer={
+        <>
+          <Btn variant="secondary" size="lg" onClick={onClose}>
+            Not yet
+          </Btn>
+          <Btn variant="success" size="lg" loading={busy} onClick={() => run(() => rabs.post(`/jobs/${job.id}/convert`), `Job ${job.jobNumber} created`)}>
+            YES — CREATE JOB
+          </Btn>
+        </>
+      }
+    >
+      {quote && <QuoteSummary quote={quote} />}
+      <ConvertQuestion jobNumber={job.jobNumber} />
+    </Modal>
+  );
+}
+
+export function DeleteJobModal({ open, onClose, job, onDeleted }: Omit<Base, 'onDone'> & { onDeleted: () => void }) {
+  const [confirmText, setConfirmText] = useState('');
+  const [reason, setReason] = useState('');
+  const [deleteCustomer, setDeleteCustomer] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const ok = confirmText.trim().toUpperCase() === String(job.jobNumber).toUpperCase();
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await rabs.del(`/admin/jobs/${job.id}`, { confirm: confirmText.trim(), reason: reason || null, deleteCustomer });
+      toast.success(`Job ${job.jobNumber} deleted`);
+      onClose();
+      onDeleted();
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Delete job"
+      footer={
+        <Btn variant="danger" size="lg" loading={busy} disabled={!ok} onClick={submit}>
+          Delete for good
+        </Btn>
+      }
+    >
+      <div className="rounded-xl bg-red-50 dark:bg-red-950/30 text-red-800 dark:text-red-300 p-3 text-sm">
+        This removes the job, its quotes, payments, invoice, bookings, photos and history. Only use it for mistakes or test records. It cannot be undone.
+      </div>
+      <Field label={`Type ${job.jobNumber} to confirm`}>
+        <input className={inputCls} value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoCapitalize="characters" />
+      </Field>
+      <Field label="Reason">
+        <input className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Test record" />
+      </Field>
+      <Toggle checked={deleteCustomer} onChange={setDeleteCustomer} label="Also delete the customer (only if they have no other jobs)" />
     </Modal>
   );
 }
@@ -252,6 +361,7 @@ export function IssueModal({ open, onClose, job, onDone, resolve }: Base & { res
       }
     >
       {resolve && job.issueNote && <div className="rounded-xl bg-red-50 text-red-800 p-3 text-sm">{job.issueNote}</div>}
+      {!resolve && job.closedAt && <div className="rounded-xl bg-amber-50 text-amber-900 p-3 text-sm">This job is closed. Raising a snag reopens it so the problem can be put right.</div>}
       <Field label={resolve ? 'How was it resolved?' : 'What is the problem?'}>
         <textarea className={textareaCls} value={note} onChange={(e) => setNote(e.target.value)} />
       </Field>

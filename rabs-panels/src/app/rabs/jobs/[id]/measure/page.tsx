@@ -5,10 +5,10 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowLeft, Camera, Lock, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Camera, ImagePlus, Lock, Pencil, Phone, Plus, Trash2 } from 'lucide-react';
 import { useRabs } from '@/components/rabs/shell';
 import { Btn, Card, Empty, Field, Modal, Spinner, StatusBadge, textareaCls } from '@/components/rabs/ui';
-import { RoomEditor } from '@/components/rabs/room-editor';
+import { RoomEditor, draftHasContent, roomDraftKey } from '@/components/rabs/room-editor';
 import { Thumbs } from '@/components/rabs/thumbs';
 import { rabs, errMsg, gbp, num, UNIT_LABEL } from '@/lib/rabs-api';
 
@@ -23,7 +23,10 @@ export default function MeasurePage() {
   const [notesState, setNotesState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [creating, setCreating] = useState(false);
   const [photoRoom, setPhotoRoom] = useState<string | null>(null);
+  const [editorKey, setEditorKey] = useState(0);
+  const [draftTick, setDraftTick] = useState(0);
   const photoRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
   const notesLoaded = useRef(false);
 
   const load = useCallback(async () => {
@@ -74,6 +77,24 @@ export default function MeasurePage() {
   const missingProduct = rooms.some((r) => !r.productId);
   const totalArea = rooms.reduce((s, r) => s + (r.areaM2 || 0), 0);
   const draftKey = `rabs_room_draft_${id}`;
+  void draftTick;
+  const pendingDraft: { label: string; room: any | 'new' } | null =
+    locked || typeof window === 'undefined' || editing
+      ? null
+      : draftHasContent(localStorage.getItem(roomDraftKey(draftKey)))
+        ? { label: 'a new room', room: 'new' }
+        : (() => {
+            const r = rooms.find((x) => draftHasContent(localStorage.getItem(roomDraftKey(draftKey, x.id))));
+            return r ? { label: r.name, room: r } : null;
+          })();
+  const openNew = () => {
+    setEditorKey((k) => k + 1);
+    setEditing('new');
+  };
+  const pickPhoto = (roomId: string, ref: typeof photoRef) => {
+    setPhotoRoom(roomId);
+    setTimeout(() => ref.current?.click(), 0);
+  };
 
   const createQuote = async () => {
     setCreating(true);
@@ -109,6 +130,7 @@ export default function MeasurePage() {
       toast.error(errMsg(e));
     } finally {
       if (photoRef.current) photoRef.current.value = '';
+      if (galleryRef.current) galleryRef.current.value = '';
     }
   };
 
@@ -123,9 +145,35 @@ export default function MeasurePage() {
           <div className="text-sm text-muted-foreground truncate">
             {customer.name} · {job.jobNumber} · {agg.siteAddress}
           </div>
+          {customer.phone && (
+            <a href={`tel:${customer.phone.replace(/\s/g, '')}`} className="inline-flex items-center gap-1 text-sm font-semibold text-brand">
+              <Phone size={13} /> {customer.phone}
+            </a>
+          )}
         </div>
         <StatusBadge size="sm" label={status.label} color={status.color} textColor={status.textColor} />
       </div>
+
+      {pendingDraft && (
+        <div className="rounded-xl border-2 border-amber-400 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-semibold">You have unsaved changes to {pendingDraft.label}.</span>
+          <div className="flex gap-2">
+            <Btn size="sm" onClick={() => (pendingDraft.room === 'new' ? openNew() : setEditing(pendingDraft.room))}>
+              Carry on
+            </Btn>
+            <Btn
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                localStorage.removeItem(roomDraftKey(draftKey, pendingDraft.room === 'new' ? null : pendingDraft.room.id));
+                setDraftTick((t) => t + 1);
+              }}
+            >
+              Discard
+            </Btn>
+          </div>
+        </div>
+      )}
 
       {locked && (
         <div className="flex items-center gap-2 rounded-xl bg-muted px-4 py-3 text-sm">
@@ -137,8 +185,8 @@ export default function MeasurePage() {
         title={`Rooms (${rooms.length})${totalArea ? ` · ${num(totalArea)} m² total` : ''}`}
         actions={
           !locked && can('measure') ? (
-            <Btn size="sm" icon={<Plus size={14} />} onClick={() => setEditing('new')}>
-              Add room
+            <Btn size="sm" icon={<Plus size={14} />} onClick={openNew}>
+              ADD ROOM
             </Btn>
           ) : null
         }
@@ -147,8 +195,8 @@ export default function MeasurePage() {
           <div className="text-center py-6">
             <p className="text-sm text-muted-foreground mb-3">Add each room you measure — the quote is built from these automatically.</p>
             {!locked && (
-              <Btn size="lg" icon={<Plus size={18} />} onClick={() => setEditing('new')}>
-                ADD FIRST ROOM
+              <Btn size="lg" icon={<Plus size={18} />} onClick={openNew}>
+                ADD ROOM
               </Btn>
             )}
           </div>
@@ -206,23 +254,37 @@ export default function MeasurePage() {
                 <div className="flex items-end gap-2">
                   <div className="flex-1 min-w-0">{r.photos.length > 0 ? <Thumbs photos={r.photos} /> : <div className="text-xs text-amber-700 mt-2">No photos yet</div>}</div>
                   {can('measure') && (
-                    <button
-                      onClick={() => {
-                        setPhotoRoom(r.id);
-                        setTimeout(() => photoRef.current?.click(), 0);
-                      }}
-                      className="h-16 w-16 shrink-0 rounded-lg border-2 border-dashed border-border flex flex-col items-center justify-center text-muted-foreground hover:bg-muted"
-                    >
-                      <Camera size={18} />
-                      <span className="text-[10px] font-semibold">Photo</span>
-                    </button>
+                    <>
+                      <button
+                        onClick={() => pickPhoto(r.id, photoRef)}
+                        className="h-16 w-16 shrink-0 rounded-lg border-2 border-dashed border-border flex flex-col items-center justify-center text-muted-foreground hover:bg-muted"
+                        aria-label={`Take photo of ${r.name}`}
+                      >
+                        <Camera size={18} />
+                        <span className="text-[10px] font-semibold">Camera</span>
+                      </button>
+                      <button
+                        onClick={() => pickPhoto(r.id, galleryRef)}
+                        className="h-16 w-16 shrink-0 rounded-lg border-2 border-dashed border-border flex flex-col items-center justify-center text-muted-foreground hover:bg-muted"
+                        aria-label={`Add photos of ${r.name} from phone`}
+                      >
+                        <ImagePlus size={18} />
+                        <span className="text-[10px] font-semibold">From phone</span>
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
             ))}
+            {!locked && can('measure') && (
+              <Btn size="lg" variant="secondary" className="w-full border-2 border-dashed" icon={<Plus size={18} />} onClick={openNew}>
+                ADD ROOM
+              </Btn>
+            )}
           </div>
         )}
         <input ref={photoRef} type="file" accept="image/*" capture="environment" multiple hidden onChange={(e) => uploadPhotos(e.target.files)} />
+        <input ref={galleryRef} type="file" accept="image/*" multiple hidden onChange={(e) => uploadPhotos(e.target.files)} />
       </Card>
 
       {measurement && (
@@ -247,13 +309,14 @@ export default function MeasurePage() {
       <Modal open={!!editing} onClose={() => setEditing(null)} title={editing === 'new' ? 'Add room' : `Edit ${editing?.name ?? 'room'}`} wide>
         {editing && measurement && (
           <RoomEditor
-            key={editing === 'new' ? 'new' : editing.id}
+            key={editing === 'new' ? `new${editorKey}` : editing.id}
             measurementId={measurement.id}
             room={editing === 'new' ? null : editing}
             draftKey={draftKey}
             onCancel={() => setEditing(null)}
-            onSaved={() => {
-              setEditing(null);
+            onSaved={(addAnother) => {
+              if (addAnother) openNew();
+              else setEditing(null);
               load();
             }}
           />

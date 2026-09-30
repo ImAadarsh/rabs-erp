@@ -19,7 +19,10 @@ async function audit(ctx: Ctx, entity: string, entityId: string | null, label: s
 
 // ---- Settings ----------------------------------------------------------------
 
-const SETTINGS_AUDITED = ['vatRate', 'depositMode', 'depositPercent', 'depositFixedAmount', 'depositMinAmount', 'defaultDeliveryCharge', 'pricesIncludeVat', 'autoCloseWhenPaid'];
+const SETTINGS_AUDITED = [
+  'vatRate', 'depositMode', 'depositPercent', 'depositFixedAmount', 'depositMinAmount', 'defaultDeliveryCharge', 'pricesIncludeVat', 'autoCloseWhenPaid',
+  'quoteValidityDays', 'jobPrefix', 'quotePrefix', 'invoicePrefix', 'nextJobNumber', 'nextQuoteNumber', 'nextInvoiceNumber'
+];
 
 export async function getAdminSettings(ctx: Ctx) {
   requireCap(ctx, 'admin');

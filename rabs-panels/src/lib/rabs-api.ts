@@ -27,8 +27,8 @@ export const rabs = {
     const { data } = await axios.put(`${BASE}${path}`, body ?? {}, { headers: headers() });
     return data;
   },
-  async del<T = any>(path: string): Promise<T> {
-    const { data } = await axios.delete(`${BASE}${path}`, { headers: headers() });
+  async del<T = any>(path: string, body?: unknown): Promise<T> {
+    const { data } = await axios.delete(`${BASE}${path}`, { headers: headers(), ...(body ? { data: body } : {}) });
     return data;
   },
   async upload<T = any>(path: string, files: File[], fields?: Record<string, string>): Promise<T> {

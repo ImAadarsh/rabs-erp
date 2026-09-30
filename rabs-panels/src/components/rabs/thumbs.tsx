@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { Image as ImageIcon } from 'lucide-react';
+import { FileText } from 'lucide-react';
 
 export function Thumbs({ photos }: { photos: any[] }) {
   return (
@@ -14,8 +14,16 @@ export function Thumbs({ photos }: { photos: any[] }) {
             {p.kind === 'before' || p.kind === 'after' ? <div className="text-[10px] text-center text-muted-foreground capitalize">{p.kind}</div> : null}
           </a>
         ) : (
-          <a key={p.id} href={p.url} target="_blank" rel="noreferrer" className="shrink-0 h-16 w-16 rounded-lg border border-border flex items-center justify-center text-muted-foreground">
-            <ImageIcon size={18} />
+          <a
+            key={p.id}
+            href={p.url}
+            target="_blank"
+            rel="noreferrer"
+            title={p.caption || 'Document'}
+            className="shrink-0 h-16 w-16 rounded-lg border border-border flex flex-col items-center justify-center gap-0.5 text-muted-foreground hover:bg-muted"
+          >
+            <FileText size={18} />
+            <span className="text-[9px] leading-tight w-14 truncate text-center">{p.caption || 'PDF'}</span>
           </a>
         )
       )}

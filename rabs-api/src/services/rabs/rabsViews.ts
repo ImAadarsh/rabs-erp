@@ -4,7 +4,7 @@ import {
   RabsCustomer, RabsAppointment, RabsMeasurement, RabsRoom, RabsRoomAccessory, RabsProduct, RabsFile, RabsQuote, RabsQuoteLine,
   RabsMaterialItem, RabsBooking, RabsPayment, RabsInvoice, RabsVariation, RabsTimeline, RabsLabourRule
 } from '@entities/rabs/RabsEntities.js';
-import { Ctx, loadJob, recomputeJob, ensureStatuses, requireCap, isOfficeUser, todayISO, bad, s3Configured } from './rabsCore.js';
+import { Ctx, loadJob, recomputeJob, ensureStatuses, requireCap, isOfficeUser, todayISO, bad, s3Configured, refreshDateStatuses } from './rabsCore.js';
 import {
   PROGRESS_STEPS, NEXT_ACTION_CODE, deriveWorkflowStatus, progressIndex, CAPABILITIES, ROOM_TYPES, LEAD_SOURCES, APPOINTMENT_PURPOSES, RABS_ROLES
 } from './rabsWorkflow.js';
@@ -187,6 +187,7 @@ async function decorate(ctx: Ctx, rows: any[]) {
 }
 
 export async function listJobs(ctx: Ctx, f: { status?: string; q?: string; staff?: string; open?: string; page?: number; limit?: number; sort?: string }) {
+  await refreshDateStatuses(ctx.orgId);
   const where: string[] = ['j.organization_id = ?'];
   const params: unknown[] = [ctx.orgId];
   if (!isOfficeUser(ctx)) {
@@ -237,6 +238,7 @@ export async function search(ctx: Ctx, q: string) {
 }
 
 export async function dashboard(ctx: Ctx) {
+  await refreshDateStatuses(ctx.orgId);
   const statuses = await ensureStatuses(ctx.orgId);
   const today = todayISO();
   const office = isOfficeUser(ctx);

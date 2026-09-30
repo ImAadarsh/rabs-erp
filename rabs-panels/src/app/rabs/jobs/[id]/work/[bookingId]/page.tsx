@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowLeft, Camera, Check, MapPin, Phone, Play, AlertTriangle, CheckCircle2, Hammer, Truck } from 'lucide-react';
+import { ArrowLeft, Camera, Check, ImagePlus, MapPin, Phone, Play, AlertTriangle, CheckCircle2, Hammer, Truck } from 'lucide-react';
 import clsx from 'clsx';
 import { useRabs } from '@/components/rabs/shell';
 import { Btn, Card, Field, Spinner, inputCls, textareaCls } from '@/components/rabs/ui';
@@ -28,6 +28,8 @@ export default function WorkPage() {
   const sigRef = useRef<SignaturePadHandle>(null);
   const beforeRef = useRef<HTMLInputElement>(null);
   const afterRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const galleryKind = useRef<'before' | 'after'>('after');
   const init = useRef(false);
 
   const load = useCallback(async () => {
@@ -105,6 +107,7 @@ export default function WorkPage() {
   };
 
   const complete = async () => {
+    if (after.length === 0) return toast.error('Take at least one "after" photo first');
     if (!booking.signatureFileId) {
       if (!sigRef.current || sigRef.current.isEmpty()) return toast.error('Ask the customer to sign in the box first');
       if (signedName.trim().length < 2) return toast.error('Enter the name of the person signing');
@@ -200,9 +203,10 @@ export default function WorkPage() {
       </Card>
 
       <div className="grid grid-cols-2 gap-4">
-        <PhotoBox title="Before" photos={before} busy={busy === 'photo-before'} disabled={done} onAdd={() => beforeRef.current?.click()} />
-        <PhotoBox title="After" photos={after} busy={busy === 'photo-after'} disabled={done} onAdd={() => afterRef.current?.click()} />
+        <PhotoBox title="Before" photos={before} busy={busy === 'photo-before'} disabled={done} onAdd={() => beforeRef.current?.click()} onGallery={() => ((galleryKind.current = 'before'), galleryRef.current?.click())} />
+        <PhotoBox title="After" photos={after} busy={busy === 'photo-after'} disabled={done} required onAdd={() => afterRef.current?.click()} onGallery={() => ((galleryKind.current = 'after'), galleryRef.current?.click())} />
       </div>
+      <input ref={galleryRef} type="file" accept="image/*" multiple hidden onChange={(e) => (upload(galleryKind.current, e.target.files), (e.target.value = ''))} />
       <input ref={beforeRef} type="file" accept="image/*" capture="environment" multiple hidden onChange={(e) => (upload('before', e.target.files), (e.target.value = ''))} />
       <input ref={afterRef} type="file" accept="image/*" capture="environment" multiple hidden onChange={(e) => (upload('after', e.target.files), (e.target.value = ''))} />
 
@@ -255,14 +259,36 @@ export default function WorkPage() {
   );
 }
 
-function PhotoBox({ title, photos, busy, disabled, onAdd }: { title: string; photos: any[]; busy: boolean; disabled: boolean; onAdd: () => void }) {
+function PhotoBox({
+  title,
+  photos,
+  busy,
+  disabled,
+  required,
+  onAdd,
+  onGallery
+}: {
+  title: string;
+  photos: any[];
+  busy: boolean;
+  disabled: boolean;
+  required?: boolean;
+  onAdd: () => void;
+  onGallery: () => void;
+}) {
   return (
     <Card title={`${title} (${photos.length})`}>
       {photos.length > 0 && <Thumbs photos={photos} />}
+      {required && !disabled && photos.length === 0 && <div className="text-xs text-amber-700 font-semibold">Needed before completing</div>}
       {!disabled && (
-        <Btn variant="secondary" className="w-full mt-2" icon={<Camera size={16} />} loading={busy} onClick={onAdd}>
-          {title} photo
-        </Btn>
+        <div className="space-y-2 mt-2">
+          <Btn variant="secondary" className="w-full" icon={<Camera size={16} />} loading={busy} onClick={onAdd}>
+            {title} photo
+          </Btn>
+          <Btn variant="secondary" size="sm" className="w-full" icon={<ImagePlus size={14} />} disabled={busy} onClick={onGallery}>
+            From phone
+          </Btn>
+        </div>
       )}
     </Card>
   );

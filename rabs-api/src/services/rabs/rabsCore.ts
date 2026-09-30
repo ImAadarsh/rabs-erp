@@ -198,6 +198,25 @@ export function dateOnly(v: unknown): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+const dateRefresh = new Map<string, { day: string; at: number }>();
+
+/**
+ * Statuses like "Fitting Today" depend on the calendar, not on a user action. Re-derive open jobs with a live booking
+ * whenever the day changes (and at most every 10 minutes) so lists, the dashboard and the diary show the right colour.
+ */
+export async function refreshDateStatuses(orgId: string) {
+  const day = todayISO();
+  const last = dateRefresh.get(orgId);
+  if (last && last.day === day && Date.now() - last.at < 10 * 60 * 1000) return;
+  dateRefresh.set(orgId, { day, at: Date.now() });
+  const rows: Array<{ id: string }> = await AppDataSource.query(
+    `SELECT DISTINCT j.id FROM rabs_jobs j JOIN rabs_bookings b ON b.job_id = j.id
+      WHERE j.organization_id = ? AND j.closed_at IS NULL AND b.status IN ('booked','in_progress')`,
+    [orgId]
+  );
+  for (const r of rows) await recomputeJob({ orgId, userId: '' }, String(r.id)).catch(() => undefined);
+}
+
 export async function recomputeJob(ctx: Pick<Ctx, 'orgId' | 'userId'>, jobId: string): Promise<RabsJob> {
   const ds = AppDataSource;
   const job = await ds.getRepository(RabsJob).findOneOrFail({ where: { id: jobId } });

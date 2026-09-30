@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Camera, Minus, Plus, X } from 'lucide-react';
+import { Camera, ImagePlus, Minus, Plus, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useRabs } from './shell';
 import { Btn, Field, inputCls, textareaCls } from './ui';
@@ -49,15 +49,42 @@ function fromRoom(r: any | null, categoryOf: (pid: string) => string): RoomForm 
   };
 }
 
-export function RoomEditor({ measurementId, room, draftKey, onSaved, onCancel }: { measurementId: string; room: any | null; draftKey: string; onSaved: () => void; onCancel: () => void }) {
+/** Local draft key for a room: one for the room being added, one per existing room being edited. */
+export const roomDraftKey = (base: string, roomId?: string | null) => (roomId ? `${base}_room_${roomId}` : base);
+
+/** A draft is worth offering back only if something was actually typed. */
+export function draftHasContent(raw: string | null) {
+  if (!raw) return false;
+  try {
+    const d = JSON.parse(raw);
+    return !!(d.name || d.lengthM || d.widthM || d.lengthFt || d.widthFt || d.productId || d.notes);
+  } catch {
+    return false;
+  }
+}
+
+export function RoomEditor({
+  measurementId,
+  room,
+  draftKey,
+  onSaved,
+  onCancel
+}: {
+  measurementId: string;
+  room: any | null;
+  draftKey: string;
+  onSaved: (addAnother: boolean) => void;
+  onCancel: () => void;
+}) {
   const { meta, can } = useRabs();
   const products = useMemo(() => (meta?.products || []).filter((p: any) => p.kind !== 'accessory'), [meta]);
   const categoryOf = (pid: string) => products.find((p: any) => p.id === pid)?.category ?? '';
+  const key = roomDraftKey(draftKey, room?.id);
+  const [restored, setRestored] = useState(() => typeof window !== 'undefined' && draftHasContent(localStorage.getItem(key)));
   const [f, setF] = useState<RoomForm>(() => {
-    if (!room && typeof window !== 'undefined') {
+    if (restored) {
       try {
-        const d = localStorage.getItem(draftKey);
-        if (d) return { ...fromRoom(null, categoryOf), ...JSON.parse(d) };
+        return { ...fromRoom(room, categoryOf), ...JSON.parse(localStorage.getItem(key) as string) };
       } catch {
         /* ignore */
       }
@@ -70,16 +97,19 @@ export function RoomEditor({ measurementId, room, draftKey, onSaved, onCancel }:
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   const camRef = useRef<HTMLInputElement>(null);
+  const galRef = useRef<HTMLInputElement>(null);
+  const dirty = useRef(false);
   const initialAccs = useRef<any[] | null>(room ? room.accessories : null);
 
   const product = products.find((p: any) => p.id === f.productId);
   const perItem = product?.calcMethod === 'per_item';
 
+  // Autosave what has been typed so a reload, a dropped signal or a closed tab never loses a room.
   useEffect(() => {
-    if (room) return;
-    const t = setTimeout(() => localStorage.setItem(draftKey, JSON.stringify(f)), 300);
+    if (!dirty.current && !restored) return;
+    const t = setTimeout(() => localStorage.setItem(key, JSON.stringify(f)), 300);
     return () => clearTimeout(t);
-  }, [f, room, draftKey]);
+  }, [f, key, restored]);
 
   const dimsBody = () => ({
     unitInput: f.unitInput,
@@ -127,9 +157,18 @@ export function RoomEditor({ measurementId, room, draftKey, onSaved, onCancel }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [f.unitInput, f.lengthM, f.widthM, f.lengthFt, f.lengthIn, f.widthFt, f.widthIn, f.doors, f.stairs, f.productId, f.productQty]);
 
-  const set = <K extends keyof RoomForm>(k: K, v: RoomForm[K]) => setF((p) => ({ ...p, [k]: v }));
+  const set = <K extends keyof RoomForm>(k: K, v: RoomForm[K]) => {
+    dirty.current = true;
+    setF((p) => ({ ...p, [k]: v }));
+  };
 
-  const save = async () => {
+  const cancel = () => {
+    if (dirty.current && !confirm('Discard the changes to this room?')) return;
+    localStorage.removeItem(key);
+    onCancel();
+  };
+
+  const save = async (addAnother = false) => {
     if (!f.name.trim()) return toast.error('Give the room a name');
     if (!f.productId) return toast.error('Choose a product for this room');
     setSaving(true);
@@ -140,9 +179,9 @@ export function RoomEditor({ measurementId, room, draftKey, onSaved, onCancel }:
       if (files.length && roomId) {
         await rabs.upload(`/rooms/${roomId}/photos`, files);
       }
-      if (!room) localStorage.removeItem(draftKey);
+      localStorage.removeItem(key);
       toast.success(`${f.name} saved`);
-      onSaved();
+      onSaved(addAnother);
     } catch (e) {
       toast.error(errMsg(e));
     } finally {
@@ -156,6 +195,23 @@ export function RoomEditor({ measurementId, room, draftKey, onSaved, onCancel }:
 
   return (
     <div className="space-y-4">
+      {restored && (
+        <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 px-3 py-2 text-sm flex items-center justify-between gap-2">
+          <span>Your unsaved changes were brought back.</span>
+          <button
+            type="button"
+            className="text-xs font-semibold underline"
+            onClick={() => {
+              localStorage.removeItem(key);
+              dirty.current = false;
+              setRestored(false);
+              setF(fromRoom(room, categoryOf));
+            }}
+          >
+            Start again
+          </button>
+        </div>
+      )}
       <Field label="Room">
         <input list="rabs-room-types" className={inputCls} value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Lounge" />
         <datalist id="rabs-room-types">
@@ -311,37 +367,47 @@ export function RoomEditor({ measurementId, room, draftKey, onSaved, onCancel }:
           ))}
           <button type="button" onClick={() => camRef.current?.click()} className="h-20 w-20 rounded-xl border-2 border-dashed border-border flex flex-col items-center justify-center text-muted-foreground hover:bg-muted">
             <Camera size={22} />
-            <span className="text-[10px] font-semibold mt-0.5">Add</span>
+            <span className="text-[10px] font-semibold mt-0.5">Camera</span>
+          </button>
+          <button type="button" onClick={() => galRef.current?.click()} className="h-20 w-20 rounded-xl border-2 border-dashed border-border flex flex-col items-center justify-center text-muted-foreground hover:bg-muted">
+            <ImagePlus size={22} />
+            <span className="text-[10px] font-semibold mt-0.5">From phone</span>
           </button>
         </div>
         <div className="text-xs text-muted-foreground mt-1">
           {existingPhotos + files.length} photo{existingPhotos + files.length === 1 ? '' : 's'} — take 3–5 per room (floor, doorways, stairs, problem areas).
         </div>
-        <input
-          ref={camRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          multiple
-          hidden
-          onChange={(e) => {
-            const list = Array.from(e.target.files || []);
-            setFiles((l) => [...l, ...list].slice(0, 12));
-            e.target.value = '';
-          }}
-        />
+        {[camRef, galRef].map((ref, i) => (
+          <input
+            key={i}
+            ref={ref}
+            type="file"
+            accept="image/*"
+            {...(i === 0 ? { capture: 'environment' as const } : {})}
+            multiple
+            hidden
+            onChange={(e) => {
+              const list = Array.from(e.target.files || []);
+              setFiles((l) => [...l, ...list].slice(0, 12));
+              e.target.value = '';
+            }}
+          />
+        ))}
       </div>
 
       <Field label="Room notes">
         <textarea className={textareaCls} value={f.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Floor condition, furniture to move, thresholds…" />
       </Field>
 
-      <div className="flex gap-2">
-        <Btn variant="secondary" className="flex-1" onClick={onCancel}>
+      <div className="grid grid-cols-2 gap-2">
+        <Btn variant="secondary" size="lg" onClick={cancel}>
           Cancel
         </Btn>
-        <Btn className="flex-[2]" size="lg" loading={saving} onClick={save}>
-          {room ? 'SAVE ROOM' : 'ADD ROOM'}
+        <Btn variant="secondary" size="lg" loading={saving} onClick={() => save(false)}>
+          SAVE ROOM
+        </Btn>
+        <Btn className="col-span-2" size="lg" loading={saving} onClick={() => save(true)}>
+          SAVE & ADD NEXT ROOM →
         </Btn>
       </div>
     </div>

@@ -60,6 +60,14 @@ function PrintDoc() {
   const number = isInvoice ? invoice.invoiceNumber : `${q.quoteNumber}${q.version > 1 ? ` v${q.version}` : ''}`;
   const date = isInvoice ? invoice.issuedAt : q.sentAt || q.createdAt;
   const paid = isInvoice ? invoice.paidAmount : 0;
+  // Always the rate the document was priced at, never today's setting (historic quotes keep their VAT).
+  const vatRate = !isInvoice
+    ? Number(q.vatRate)
+    : q?.status === 'accepted'
+      ? Number(q.vatRate)
+      : invoice.netTotal > 0
+        ? Math.round((invoice.vatAmount / invoice.netTotal) * 1000) / 1000
+        : Number(meta.settings.vatRate || 0);
 
   return (
     <div className="min-h-screen bg-neutral-100 print:bg-white text-neutral-900">
@@ -149,8 +157,8 @@ function PrintDoc() {
                   {q.deliveryCharge > 0 && <TRow label="Delivery" value={gbp(q.deliveryCharge)} />}
                 </>
               )}
-              <TRow label="Net total" value={gbp(isInvoice ? invoice.netTotal : q.netTotal)} />
-              <TRow label={`VAT ${num((meta.settings.vatRate || 0) * 100)}%`} value={gbp(isInvoice ? invoice.vatAmount : q.vatAmount)} />
+              <TRow label="Total before VAT" value={gbp(isInvoice ? invoice.netTotal : q.netTotal)} />
+              <TRow label={`VAT ${num((vatRate || 0) * 100)}%`} value={gbp(isInvoice ? invoice.vatAmount : q.vatAmount)} />
               <tr className="border-t-2 border-neutral-900">
                 <td className="py-2 font-extrabold text-base">Total</td>
                 <td className="py-2 text-right font-extrabold text-base">{gbp(isInvoice ? invoice.total : q.total)}</td>

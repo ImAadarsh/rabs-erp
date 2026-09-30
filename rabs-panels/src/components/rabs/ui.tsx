@@ -53,7 +53,7 @@ export function NextActionButton({ label, onClick, loading, sub }: { label: stri
       <div className="flex items-center justify-between gap-4">
         <div>
           <div className="text-xs uppercase tracking-widest text-white/75 font-medium">Next step</div>
-          <div className="text-xl md:text-2xl font-extrabold tracking-tight">{label}</div>
+          <div className="text-xl md:text-2xl font-extrabold tracking-tight">NEXT: {label}</div>
           {sub && <div className="text-sm text-white/85 mt-0.5">{sub}</div>}
         </div>
         <div className="h-12 w-12 shrink-0 rounded-full bg-white/20 flex items-center justify-center text-2xl">
@@ -156,7 +156,7 @@ export function ProgressBar({ steps, index, closed }: { steps: Array<{ key: stri
               >
                 {done ? <Check size={16} /> : i + 1}
               </span>
-              <span className={clsx('mt-1.5 text-[11px] text-center leading-tight px-0.5', current ? 'font-bold text-foreground' : 'text-muted-foreground')}>{s.label}</span>
+              <span className={clsx('mt-1.5 text-[10px] tracking-tight text-center leading-tight px-0.5', current ? 'font-bold text-foreground' : 'text-muted-foreground')}>{s.label.replace('/', '/\u200b')}</span>
             </li>
           );
         })}

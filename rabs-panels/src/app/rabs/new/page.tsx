@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { UserCheck, AlertTriangle } from 'lucide-react';
+import { UserCheck, AlertTriangle, Search } from 'lucide-react';
 import { useRabs } from '@/components/rabs/shell';
 import { Btn, Card, Field, Toggle, inputCls, textareaCls } from '@/components/rabs/ui';
 import { rabs, errMsg, addDays, isoDay } from '@/lib/rabs-api';
@@ -59,7 +59,33 @@ export default function NewEnquiryPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dups, setDups] = useState<any[]>([]);
   const [existing, setExisting] = useState<any | null>(null);
+  const [findQ, setFindQ] = useState('');
+  const [found, setFound] = useState<any[] | null>(null);
   const loaded = useRef(false);
+
+  // Repeat customer: open from a job ("New job for customer") with ?customer=ID, nothing is typed again.
+  useEffect(() => {
+    const cid = new URLSearchParams(window.location.search).get('customer');
+    if (!cid || !/^\d+$/.test(cid)) return;
+    rabs
+      .get(`/customers/${cid}`)
+      .then((c) => setExisting(c))
+      .catch((e) => toast.error(errMsg(e)));
+  }, []);
+
+  useEffect(() => {
+    if (existing || findQ.trim().length < 2) {
+      setFound(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      rabs
+        .get('/customers', { q: findQ.trim() })
+        .then((r) => setFound(r.slice(0, 8)))
+        .catch(() => setFound([]));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [findQ, existing]);
 
   useEffect(() => {
     try {
@@ -191,13 +217,54 @@ export default function NewEnquiryPage() {
       {restored && <div className="rounded-xl bg-amber-50 text-amber-800 text-sm px-3 py-2">Your unsaved enquiry was restored.</div>}
 
       <Card title="Customer">
+        {!existing && (
+          <div className="mb-4">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                className={`${inputCls} pl-9`}
+                value={findQ}
+                onChange={(e) => setFindQ(e.target.value)}
+                placeholder="Returning customer? Search name, phone or postcode"
+                aria-label="Find an existing customer"
+              />
+            </div>
+            {found && (
+              <div className="mt-2 rounded-xl border border-border divide-y divide-border/60">
+                {found.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">No match — fill in the new customer below.</div>
+                ) : (
+                  found.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        setExisting(c);
+                        setFindQ('');
+                      }}
+                      className="w-full text-left px-3 py-2.5 hover:bg-muted flex items-center justify-between gap-2"
+                    >
+                      <span className="min-w-0">
+                        <span className="block font-semibold truncate">{c.name}</span>
+                        <span className="block text-xs text-muted-foreground truncate">{[c.phone, c.address].filter(Boolean).join(' · ')}</span>
+                      </span>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        {c.jobCount} job{c.jobCount === 1 ? '' : 's'}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {existing ? (
           <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 px-4 py-3">
             <div className="flex items-center gap-3">
               <UserCheck className="text-emerald-600" />
               <div>
                 <div className="font-bold">{existing.name}</div>
-                <div className="text-xs text-muted-foreground">{[existing.phone, existing.email, existing.postcode].filter(Boolean).join(' · ')}</div>
+                <div className="text-xs text-muted-foreground">{[existing.phone, existing.email, existing.address || existing.postcode].filter(Boolean).join(' · ')}</div>
               </div>
             </div>
             <Btn size="sm" variant="secondary" onClick={() => setExisting(null)}>

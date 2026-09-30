@@ -142,6 +142,15 @@ async function writeLines(quoteId: string, lines: LineDraft[]) {
   if (lines.length) await R.lines().insert(lines.map((l) => ({ ...l, quoteId })));
 }
 
+/** Extra lines typed on the quote (not from the measurement) survive a rebuild, as long as their room still exists. */
+async function customLinesToKeep(fromQuoteId: string | null, rooms: Set<string>, startOrder: number): Promise<LineDraft[]> {
+  if (!fromQuoteId) return [];
+  const custom = await R.lines().find({ where: { quoteId: fromQuoteId, lineType: 'custom' }, order: { sortOrder: 'ASC', id: 'ASC' } });
+  return custom
+    .filter((l) => !l.roomId || rooms.has(l.roomId))
+    .map(({ id: _i, quoteId: _q, ...l }, i) => ({ ...l, sortOrder: startOrder + i }));
+}
+
 /** CREATE QUOTATION: builds (or rebuilds the current draft) from the measurement. Sent quotes get a new version. */
 export async function createQuoteFromMeasurement(ctx: Ctx, jobId: string) {
   requireCap(ctx, 'quotes');
@@ -183,11 +192,42 @@ export async function createQuoteFromMeasurement(ctx: Ctx, jobId: string) {
     );
     await addTimeline(ctx, job.id, 'quote', `Quotation ${quoteNumber} v${version} created automatically from ${new Set(lines.map((l) => l.roomId)).size} room(s)`);
   }
-  await writeLines(quote.id, lines);
+  const roomIds = new Set(lines.map((l) => l.roomId).filter(Boolean) as string[]);
+  const kept = await customLinesToKeep(latest?.id ?? null, roomIds, lines.length);
+  await writeLines(quote.id, [...lines, ...kept]);
   await R.meas().update({ id: m.id }, { status: 'complete' });
   await applyTotals(ctx, quote);
   await recomputeJob(ctx, job.id);
   return R.quotes().findOneOrFail({ where: { id: quote.id } });
+}
+
+/**
+ * Rooms changed after the quote was drafted: refresh the draft so the quote always matches the measurement.
+ * Sent quotes are left alone (the next CREATE QUOTATION makes a new version). Returns true if a draft was refreshed.
+ */
+export async function refreshDraftFromMeasurement(ctx: Ctx, jobId: string): Promise<boolean> {
+  const [latest] = await R.quotes().find({ where: { jobId }, order: { id: 'DESC' }, take: 1 });
+  if (!latest || latest.status !== 'draft' || !ctx.caps.has('quotes')) return false;
+  const m = await R.meas().findOne({ where: { jobId }, order: { id: 'DESC' } });
+  if (!m) return false;
+  const roomCount = await R.rooms().count({ where: { measurementId: m.id } });
+  if (!roomCount) {
+    const custom = await customLinesToKeep(latest.id, new Set(), 0);
+    await writeLines(latest.id, custom);
+    await applyTotals(ctx, latest);
+    return true;
+  }
+  let lines: LineDraft[];
+  try {
+    lines = await buildLinesFromMeasurement(ctx, m.id);
+  } catch {
+    return false;
+  }
+  const roomIds = new Set(lines.map((l) => l.roomId).filter(Boolean) as string[]);
+  await writeLines(latest.id, [...lines, ...(await customLinesToKeep(latest.id, roomIds, lines.length))]);
+  await applyTotals(ctx, latest);
+  await addTimeline(ctx, jobId, 'quote', `Quotation ${latest.quoteNumber} v${latest.version} updated automatically after a room change`);
+  return true;
 }
 
 async function loadQuote(ctx: Ctx, id: string) {

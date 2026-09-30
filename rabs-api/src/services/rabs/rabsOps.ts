@@ -4,7 +4,7 @@ import {
   RabsJob, RabsPayment, RabsInvoice, RabsVariation, RabsQuote, RabsQuoteLine, RabsProduct, RabsMaterialItem, RabsBooking, RabsFile
 } from '@entities/rabs/RabsEntities.js';
 import {
-  Ctx, HttpError, bad, conflict, notFound, loadJob, nextNumber, addTimeline, recomputeJob, requireCap, storeFile, todayISO, dateOnly
+  Ctx, HttpError, bad, conflict, notFound, loadJob, nextNumber, addTimeline, recomputeJob, requireCap, storeFile, removeStoredFile, todayISO, dateOnly
 } from './rabsCore.js';
 import { round2, addVat, balanceDue } from './rabsCalc.js';
 import { DEFAULT_CHECKLISTS } from './rabsWorkflow.js';
@@ -230,9 +230,9 @@ export async function checkMaterials(ctx: Ctx, jobId: string) {
   const existing = await R.materials().find({ where: { jobId: job.id } });
 
   for (const item of existing) {
-    if (item.variantId && item.qtyReserved > 0 && item.status !== 'received') await adjustReserved(item.variantId, -item.qtyReserved);
+    if (item.variantId && item.qtyReserved > 0 && ['reserved', 'to_order', 'not_tracked'].includes(item.status)) await adjustReserved(item.variantId, -item.qtyReserved);
   }
-  const keep = new Map(existing.filter((e) => e.status === 'received' || e.status === 'ordered').map((e) => [e.productId, e]));
+  const keep = new Map(existing.filter((e) => e.status === 'received' || e.status === 'ordered' || e.status === 'used').map((e) => [e.productId, e]));
   await R.materials().delete({ jobId: job.id, status: In(['reserved', 'to_order', 'not_tracked']) });
 
   let short = 0;
@@ -294,7 +294,7 @@ export async function setMaterialStatus(ctx: Ctx, id: string, status: 'ordered' 
   return all.map((x) => (x.id === id ? { ...x, status } : x));
 }
 
-/** When the work is complete, reserved stock is consumed (on hand and reserved both drop). */
+/** When the work is complete, reserved stock is consumed (on hand and reserved both drop). qtyReserved keeps the amount used. */
 async function consumeMaterials(jobId: string) {
   const items = await R.materials().find({ where: { jobId, status: 'reserved' } });
   for (const it of items) {
@@ -310,7 +310,7 @@ async function consumeMaterials(jobId: string) {
       await AppDataSource.query('UPDATE stock_items SET quantity_reserved = quantity_reserved - ?, quantity_on_hand = quantity_on_hand - ? WHERE id = ?', [take, take, r.id]);
       left -= take;
     }
-    await R.materials().update({ id: it.id }, { status: 'received', qtyReserved: 0 });
+    await R.materials().update({ id: it.id }, { status: 'used', qtyReserved: it.qtyReserved - left });
   }
 }
 
@@ -448,6 +448,8 @@ export async function completeBooking(ctx: Ctx, id: string, notes?: string | nul
   if (b.status === 'complete') return recomputeJob(ctx, b.jobId);
   if (b.status === 'cancelled') throw conflict('This booking was cancelled');
   if (!b.signatureFileId) throw bad('The customer must sign before the job can be completed');
+  const afterPhotos = await R.files().count({ where: { bookingId: b.id, kind: 'after' } });
+  if (!afterPhotos) throw bad(`Take at least one "after" photo before completing the ${b.type}`);
   await R.bookings().update({ id }, { status: 'complete', completedAt: new Date(), ...(notes ? { completionNotes: notes } : {}) });
   const open = (b.checklist || []).filter((c) => !c.done).length;
   await addTimeline(ctx, b.jobId, 'fieldwork', `${cap(b.type)} completed${open ? ` (${open} checklist item(s) not ticked)` : ''}`);
@@ -480,7 +482,13 @@ export async function myWork(ctx: Ctx, scope: 'today' | 'upcoming' | 'all' = 'up
 
 export async function raiseIssue(ctx: Ctx, jobId: string, note: string) {
   const job = await loadJob(ctx, jobId);
-  if (job.closedAt) throw conflict('This job is closed');
+  if (job.closedAt) {
+    // A snag after the job was closed (e.g. customer calls back) reopens the job so it can be put right.
+    requireCap(ctx, 'customers', 'admin');
+    await R.jobs().update({ id: job.id }, { closedAt: null, hasIssue: true, issueNote: note.trim() });
+    await addTimeline(ctx, job.id, 'reopened', `Job reopened for a snag after closing: ${note.trim()}`);
+    return recomputeJob(ctx, job.id);
+  }
   await R.jobs().update({ id: job.id }, { hasIssue: true, issueNote: note.trim() });
   await addTimeline(ctx, job.id, 'issue', `Issue / snag raised: ${note.trim()}`);
   return recomputeJob(ctx, job.id);
@@ -517,4 +525,65 @@ export async function reopenJob(ctx: Ctx, jobId: string) {
   await R.jobs().update({ id: job.id }, { closedAt: null });
   await addTimeline(ctx, job.id, 'reopened', 'Job reopened by admin');
   return recomputeJob(ctx, job.id);
+}
+
+// ---- Delete a job (admin only: mistakes / test records) ---------------------------
+
+/**
+ * Permanently removes a job and everything attached to it. Reserved stock is released and stock used on the job is
+ * put back. The customer is removed too when they have no other jobs and `deleteCustomer` is set.
+ */
+export async function deleteJob(ctx: Ctx, jobId: string, opts: { confirm: string; reason?: string | null; deleteCustomer?: boolean }) {
+  requireCap(ctx, 'admin');
+  const job = await loadJob(ctx, jobId);
+  if ((opts.confirm || '').trim().toUpperCase() !== job.jobNumber.toUpperCase()) throw bad(`Type the job number ${job.jobNumber} to confirm`);
+  const materials = await R.materials().find({ where: { jobId: job.id } });
+  for (const m of materials) {
+    if (!m.variantId || m.qtyReserved <= 0) continue;
+    if (m.status !== 'used') await adjustReserved(m.variantId, -m.qtyReserved);
+    else {
+      const [row] = await AppDataSource.query(
+        "SELECT id FROM stock_items WHERE variant_id = ? AND status IN ('available','reserved') ORDER BY id LIMIT 1",
+        [m.variantId]
+      );
+      if (row) await AppDataSource.query('UPDATE stock_items SET quantity_on_hand = quantity_on_hand + ? WHERE id = ?', [m.qtyReserved, row.id]);
+    }
+  }
+  const files = await R.files().find({ where: { jobId: job.id } });
+  for (const f of files) await removeStoredFile(f.storageKey).catch(() => undefined);
+
+  const customer = await AppDataSource.query('SELECT id, customer_id coreId, name FROM rabs_customers WHERE id = ?', [job.rabsCustomerId]);
+  await AppDataSource.transaction(async (em) => {
+    const q = (sql: string) => em.query(sql, [job.id]);
+    await q('DELETE a FROM rabs_room_accessories a JOIN rabs_rooms r ON r.id = a.room_id WHERE r.job_id = ?');
+    await q('DELETE l FROM rabs_quote_lines l JOIN rabs_quotes qt ON qt.id = l.quote_id WHERE qt.job_id = ?');
+    for (const t of ['rabs_rooms', 'rabs_measurements', 'rabs_appointments', 'rabs_quotes', 'rabs_variations', 'rabs_invoices', 'rabs_payments', 'rabs_material_items', 'rabs_bookings', 'rabs_files', 'rabs_timeline']) {
+      await q(`DELETE FROM ${t} WHERE job_id = ?`);
+    }
+    await q('DELETE FROM rabs_jobs WHERE id = ?');
+    await em.query(
+      "INSERT INTO rabs_price_audit (organization_id, entity, entity_id, entity_label, field, old_value, new_value, changed_by) VALUES (?, 'job', ?, ?, 'deleted', ?, ?, ?)",
+      [ctx.orgId, job.id, `${job.jobNumber} — ${customer[0]?.name ?? ''}`.slice(0, 255), job.status, (opts.reason || 'Deleted by admin').slice(0, 255), ctx.userId]
+    );
+  });
+
+  let customerDeleted = false;
+  if (opts.deleteCustomer && customer[0]) {
+    const [{ n }] = await AppDataSource.query('SELECT COUNT(*) n FROM rabs_jobs WHERE rabs_customer_id = ?', [customer[0].id]);
+    if (Number(n) === 0) {
+      await AppDataSource.query('DELETE FROM rabs_customers WHERE id = ?', [customer[0].id]);
+      customerDeleted = true;
+      if (customer[0].coreId) {
+        const coreId = customer[0].coreId;
+        const tag = `RABS-C${customer[0].id}`;
+        try {
+          await AppDataSource.query('DELETE FROM customer_addresses WHERE customer_id = ?', [coreId]);
+          await AppDataSource.query('DELETE FROM customers WHERE id = ? AND customer_number = ?', [coreId, tag]);
+        } catch {
+          await AppDataSource.query('UPDATE customers SET deleted_at = NOW() WHERE id = ? AND customer_number = ?', [coreId, tag]).catch(() => undefined);
+        }
+      }
+    }
+  }
+  return { deleted: job.jobNumber, customerDeleted };
 }

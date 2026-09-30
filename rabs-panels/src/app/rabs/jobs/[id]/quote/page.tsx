@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, Printer, Plus, Trash2, RefreshCw, Send, Save, CheckCircle2, Copy, XCircle } from 'lucide-react';
 import { useRabs } from '@/components/rabs/shell';
 import { Btn, Card, Field, Modal, Row, Spinner, StatusBadge, inputCls, textareaCls } from '@/components/rabs/ui';
-import { AcceptModal } from '@/components/rabs/job-modals';
+import { AcceptModal, ConvertModal } from '@/components/rabs/job-modals';
 import { rabs, errMsg, gbp, num, fmtDate, UNIT_LABEL } from '@/lib/rabs-api';
 
 const LINE_LABEL: Record<string, string> = { product: 'Product', accessory: 'Accessory', labour: 'Fitting', custom: 'Extra', delivery: 'Delivery' };
@@ -22,6 +22,7 @@ export default function QuotePage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [accept, setAccept] = useState(false);
+  const [convert, setConvert] = useState(false);
   const [addLine, setAddLine] = useState(false);
 
   const load = useCallback(async () => {
@@ -85,7 +86,7 @@ export default function QuotePage() {
   const editable = draft && can('quotes');
   const canPrice = can('view_prices');
   const canCost = can('view_costs');
-  const groups = groupLines(q.lines);
+  const groups = groupLines(q.lines, agg.measurement?.rooms || []);
 
   const patchQuote = (body: any) => run('patch', () => rabs.patch(`/quotes/${quote.id}`, body), undefined, (r) => setQ(r));
   const patchLine = (lineId: string, body: any) => run(`line${lineId}`, () => rabs.patch(`/quotes/${quote.id}/lines/${lineId}`, body), undefined, (r) => setQ(r));
@@ -100,7 +101,7 @@ export default function QuotePage() {
 
       <div className="flex flex-wrap gap-2 items-center text-sm">
         <span className={`px-2.5 py-1 rounded-full font-semibold capitalize ${draft ? 'bg-neutral-200 text-neutral-800' : quote.status === 'sent' ? 'bg-amber-100 text-amber-800' : quote.status === 'accepted' ? 'bg-emerald-100 text-emerald-800' : 'bg-neutral-100 text-neutral-600'}`}>
-          {quote.status}
+          {QUOTE_WORD[quote.status] || quote.status}
         </span>
         {quote.validUntil && <span className="text-muted-foreground">Valid until {fmtDate(quote.validUntil)}</span>}
         {quote.acceptedAt && <span className="text-muted-foreground">Accepted {fmtDate(quote.acceptedAt)} by {quote.acceptedByName || 'customer'}</span>}
@@ -109,8 +110,17 @@ export default function QuotePage() {
         </Link>
       </div>
 
-      {groups.map(([room, lines]) => (
-        <Card key={room} title={room} pad={false}>
+      {groups.map(([room, lines, dims]) => (
+        <Card
+          key={room}
+          title={
+            <span>
+              {room}
+              {dims && <span className="block text-xs font-normal text-muted-foreground">{dims}</span>}
+            </span>
+          }
+          pad={false}
+        >
           <div className="divide-y divide-border/60">
             {lines.map((l) => (
               <LineRow key={l.id} l={l} editable={editable} canPrice={canPrice} canCost={canCost} busy={busy === `line${l.id}`} onPatch={(b) => patchLine(l.id, b)} onDelete={() => delLine(l.id)} />
@@ -186,7 +196,7 @@ export default function QuotePage() {
                   <span>{gbp(quote.deliveryCharge)}</span>
                 )}
               </div>
-              <Row label="Net">{gbp(quote.netTotal)}</Row>
+              <Row label="Total before VAT">{gbp(quote.netTotal)}</Row>
               <Row label={`VAT ${num((quote.vatRate || 0) * 100)}%`}>{gbp(quote.vatAmount)}</Row>
               <div className="border-t border-border my-1" />
               <Row label="Total" strong>
@@ -215,7 +225,7 @@ export default function QuotePage() {
             <Btn variant="secondary" icon={<Save size={16} />} onClick={() => router.push(`/rabs/jobs/${id}`)}>
               SAVE DRAFT
             </Btn>
-            <Btn variant="secondary" icon={<RefreshCw size={16} />} loading={busy === 'rebuild'} onClick={() => confirm('Rebuild all lines from the measurement? Manual line changes will be replaced.') && run('rebuild', () => rabs.post(`/quotes/${quote.id}/rebuild`), 'Rebuilt from measurement')}>
+            <Btn variant="secondary" icon={<RefreshCw size={16} />} loading={busy === 'rebuild'} onClick={() => confirm('Rebuild the lines from the measurement? Quantity or price changes you made will be reset. Extra lines you added are kept.') && run('rebuild', () => rabs.post(`/quotes/${quote.id}/rebuild`), 'Rebuilt from measurement')}>
               Rebuild
             </Btn>
             <Btn className="col-span-2 sm:col-span-1" icon={<Send size={16} />} loading={busy === 'send'} onClick={() => run('send', () => rabs.post(`/quotes/${quote.id}/send`), 'Quote marked as sent')}>
@@ -228,6 +238,11 @@ export default function QuotePage() {
             ACCEPT & CREATE JOB
           </Btn>
         )}
+        {quote.status === 'accepted' && !job.convertedAt && can('accept') && (
+          <Btn variant="success" size="lg" className="w-full text-lg" icon={<CheckCircle2 size={20} />} onClick={() => setConvert(true)}>
+            CREATE JOB
+          </Btn>
+        )}
         {quote.status === 'sent' && can('quotes') && (
           <div className="grid grid-cols-2 gap-2">
             <Btn variant="secondary" icon={<Copy size={16} />} loading={busy === 'revise'} onClick={() => run('revise', () => rabs.post(`/quotes/${quote.id}/revise`), 'New version created')}>
@@ -238,7 +253,7 @@ export default function QuotePage() {
             </Btn>
           </div>
         )}
-        {quote.status === 'accepted' && (
+        {quote.status === 'accepted' && job.convertedAt && (
           <Btn size="lg" className="w-full" onClick={() => router.push(`/rabs/jobs/${id}`)}>
             OPEN JOB →
           </Btn>
@@ -262,6 +277,7 @@ export default function QuotePage() {
           }}
         />
       )}
+      {convert && <ConvertModal open onClose={() => setConvert(false)} job={job} quote={quote} onDone={() => router.push(`/rabs/jobs/${id}`)} />}
       {addLine && <AddLineModal quoteId={quote.id} rooms={agg.measurement?.rooms || []} onClose={() => setAddLine(false)} onDone={(r) => setQ(r)} />}
     </div>
   );
@@ -281,14 +297,25 @@ function Back({ id, title, sub }: { id: string; title: string; sub: string }) {
   );
 }
 
-function groupLines(lines: any[]): Array<[string, any[]]> {
+const QUOTE_WORD: Record<string, string> = { draft: 'draft', sent: 'sent', accepted: 'accepted', superseded: 'replaced by newer version', declined: 'declined' };
+
+function roomDims(r: any) {
+  if (!r || !(r.areaM2 > 0)) return null;
+  return `${num(r.lengthM)} × ${num(r.widthM)} m · ${num(r.areaM2)} m² · ${num(r.areaSqyd)} sq yd${r.stairs ? ` · ${r.stairs} stairs` : ''}`;
+}
+
+function groupLines(lines: any[], rooms: any[]): Array<[string, any[], string | null]> {
   const map = new Map<string, any[]>();
+  const dims = new Map<string, string | null>();
   for (const l of lines) {
     const k = l.roomName || (l.lineType === 'delivery' ? 'Delivery' : 'Extras');
-    if (!map.has(k)) map.set(k, []);
+    if (!map.has(k)) {
+      map.set(k, []);
+      dims.set(k, roomDims(rooms.find((r) => r.id === l.roomId)));
+    }
     map.get(k)!.push(l);
   }
-  return [...map.entries()];
+  return [...map.entries()].map(([k, v]) => [k, v, dims.get(k) ?? null]);
 }
 
 function LineRow({ l, editable, canPrice, canCost, busy, onPatch, onDelete }: { l: any; editable: boolean; canPrice: boolean; canCost: boolean; busy: boolean; onPatch: (b: any) => void; onDelete: () => void }) {
@@ -333,7 +360,7 @@ function LineRow({ l, editable, canPrice, canCost, busy, onPatch, onDelete }: { 
         </>
       )}
       {editable && (
-        <button onClick={onDelete} className="p-2 rounded-lg hover:bg-muted text-red-600" aria-label="Remove line">
+        <button onClick={onDelete} className="p-3 rounded-lg hover:bg-muted text-red-600" aria-label="Remove line">
           <Trash2 size={15} />
         </button>
       )}

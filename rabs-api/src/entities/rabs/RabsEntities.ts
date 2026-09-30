@@ -354,7 +354,7 @@ export class RabsMaterialItem {
   @Column({ name: 'qty_reserved', type: 'int' }) qtyReserved!: number;
   @Column({ name: 'qty_short', type: 'int' }) qtyShort!: number;
   @fk('variant_id') variantId!: string | null;
-  @Column({ type: 'enum', enum: ['reserved', 'to_order', 'ordered', 'received', 'not_tracked'] }) status!: 'reserved' | 'to_order' | 'ordered' | 'received' | 'not_tracked';
+  @Column({ type: 'enum', enum: ['reserved', 'to_order', 'ordered', 'received', 'not_tracked', 'used'] }) status!: 'reserved' | 'to_order' | 'ordered' | 'received' | 'not_tracked' | 'used';
   @Column({ name: 'checked_at', type: 'datetime', nullable: true }) checkedAt!: Date | null;
   @UpdateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
 }

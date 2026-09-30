@@ -5,6 +5,7 @@ import {
 } from '@entities/rabs/RabsEntities.js';
 import { Ctx, bad, conflict, notFound, loadJob, nextNumber, addTimeline, recomputeJob, storeFile, removeStoredFile, requireCap, isOfficeUser } from './rabsCore.js';
 import { ftInToMetres, roomDimensions, productQuantity, accessoryQuantity, type RoomDims, round2 } from './rabsCalc.js';
+import { refreshDraftFromMeasurement } from './rabsQuotes.js';
 
 const R = {
   customers: () => AppDataSource.getRepository(RabsCustomer),
@@ -452,6 +453,7 @@ export async function addRoom(ctx: Ctx, measurementId: string, input: RoomInput)
   );
   await saveRoomAccessories(ctx, room, product, dims, input.accessories);
   await addTimeline(ctx, m.jobId, 'room', `Room added: ${room.name}${dims.areaM2 ? ` ${dims.lengthM}m × ${dims.widthM}m (${dims.areaM2} m²)` : ''}${product ? ` — ${product.name}` : ''}`);
+  await refreshDraftFromMeasurement(ctx, m.jobId);
   await recomputeJob(ctx, m.jobId);
   return room;
 }
@@ -502,6 +504,8 @@ export async function updateRoom(ctx: Ctx, roomId: string, input: Partial<RoomIn
   const fresh = await R.rooms().findOneOrFail({ where: { id: room.id } });
   if (input.accessories !== undefined || input.productId !== undefined) await saveRoomAccessories(ctx, fresh, product, dims, input.accessories);
   await addTimeline(ctx, room.jobId, 'room', `Room updated: ${fresh.name}`);
+  await refreshDraftFromMeasurement(ctx, room.jobId);
+  await recomputeJob(ctx, room.jobId);
   return fresh;
 }
 
@@ -517,6 +521,7 @@ export async function deleteRoom(ctx: Ctx, roomId: string) {
   await R.acc().delete({ roomId: room.id });
   await R.rooms().delete({ id: room.id });
   await addTimeline(ctx, room.jobId, 'room', `Room removed: ${room.name}`);
+  await refreshDraftFromMeasurement(ctx, room.jobId);
   await recomputeJob(ctx, room.jobId);
 }
 

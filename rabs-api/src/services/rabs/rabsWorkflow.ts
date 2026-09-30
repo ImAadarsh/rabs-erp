@@ -1,16 +1,16 @@
 /** Workflow rules for the RABS one-click CRM: statuses, progress steps, next actions, permissions. Pure (no DB). */
 
 export const PROGRESS_STEPS = [
-  { key: 'APPOINTMENT', label: 'Appointment' },
-  { key: 'MEASURE', label: 'Measure' },
-  { key: 'QUOTE', label: 'Quote' },
-  { key: 'ACCEPTED', label: 'Accepted' },
-  { key: 'DEPOSIT', label: 'Deposit' },
-  { key: 'MATERIAL', label: 'Material' },
-  { key: 'FITTING', label: 'Fitting / Delivery' },
-  { key: 'COMPLETE', label: 'Complete' },
-  { key: 'BALANCE', label: 'Balance' },
-  { key: 'CLOSED', label: 'Closed' }
+  { key: 'APPOINTMENT', label: 'APPOINTMENT' },
+  { key: 'MEASURE', label: 'MEASURE' },
+  { key: 'QUOTE', label: 'QUOTE' },
+  { key: 'ACCEPTED', label: 'ACCEPTED' },
+  { key: 'DEPOSIT', label: 'DEPOSIT' },
+  { key: 'MATERIAL', label: 'MATERIAL' },
+  { key: 'FITTING', label: 'FITTING/DELIVERY' },
+  { key: 'COMPLETE', label: 'COMPLETE' },
+  { key: 'BALANCE', label: 'BALANCE' },
+  { key: 'CLOSED', label: 'CLOSED' }
 ] as const;
 
 export type StatusDef = {

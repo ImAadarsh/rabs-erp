@@ -3,19 +3,66 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Plus, CalendarClock, Truck, Hammer, Wallet, HardHat } from 'lucide-react';
+import { Plus, CalendarClock, Truck, Hammer, Wallet, HardHat, HelpCircle, X } from 'lucide-react';
 import { useRabs } from '@/components/rabs/shell';
 import { Card, Empty, Spinner, StatusBadge } from '@/components/rabs/ui';
 import { JobRow } from '@/components/rabs/job-row';
 import { rabs, errMsg, gbp, fmtTime, fmtDate } from '@/lib/rabs-api';
 
+const HELP_KEY = 'rabs_help_seen';
+
+const OFFICE_STEPS = [
+  ['New enquiry', 'Type the customer once and book the visit.'],
+  ['Open the job', 'The big green button always shows the next step — just press it.'],
+  ['Measure', 'Add each room, pick the product, tick accessories, take photos.'],
+  ['Quote', 'Built for you from the rooms. Send it, then accept to create the job.'],
+  ['Deposit → materials → fitting', 'Take the deposit, check stock, book the fitting or delivery.'],
+  ['Balance → closed', 'After sign-off, collect the balance. The job closes when fully paid.']
+];
+const FIELD_STEPS = [
+  ['My work', 'Your fittings and deliveries, today first.'],
+  ['On site', 'Press START, tick the checklist, take before and after photos.'],
+  ['Finish', 'Customer signs on the phone, then press COMPLETE.'],
+  ['Problem?', 'Press Report a problem — the office sees it straight away.']
+];
+
+function HowItWorks({ office, onClose }: { office: boolean; onClose: () => void }) {
+  const steps = office ? OFFICE_STEPS : FIELD_STEPS;
+  return (
+    <div className="rounded-2xl border-2 border-brand/40 bg-brand/5 p-4 md:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-lg font-extrabold">How it works</div>
+        <button onClick={onClose} className="p-2 -m-2 rounded-lg hover:bg-muted" aria-label="Close help">
+          <X size={18} />
+        </button>
+      </div>
+      <ol className="mt-2 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {steps.map(([t, d], i) => (
+          <li key={t} className="flex gap-3">
+            <span className="h-7 w-7 shrink-0 rounded-full bg-brand text-white text-sm font-bold flex items-center justify-center">{i + 1}</span>
+            <span className="text-sm">
+              <b>{t}</b>
+              <span className="block text-muted-foreground">{d}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+      <button onClick={onClose} className="mt-4 h-11 px-5 rounded-xl bg-brand text-white font-bold">
+        Got it
+      </button>
+    </div>
+  );
+}
+
 export default function RabsHome() {
   const { can } = useRabs();
   const [d, setD] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [help, setHelp] = useState(false);
 
   useEffect(() => {
     rabs.get('/dashboard').then(setD).catch((e) => setError(errMsg(e)));
+    setHelp(localStorage.getItem(HELP_KEY) !== '1');
   }, []);
 
   if (error) return <div className="rounded-2xl bg-red-50 text-red-700 p-4 text-sm">{error}</div>;
@@ -30,6 +77,11 @@ export default function RabsHome() {
           <h1 className="text-2xl font-extrabold tracking-tight">{greeting()}</h1>
           <p className="text-sm text-muted-foreground">{fmtDate(d.today)}</p>
         </div>
+        {!help && (
+          <button onClick={() => setHelp(true)} className="ml-auto md:ml-0 inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border border-border text-sm font-semibold hover:bg-muted">
+            <HelpCircle size={16} /> How it works
+          </button>
+        )}
         {office && (
           <Link href="/rabs/new" className="hidden md:inline-flex items-center gap-2 h-12 px-5 rounded-xl bg-brand text-white font-bold shadow-lg shadow-brand/30 hover:bg-brand-600">
             <Plus size={18} /> New enquiry
@@ -41,6 +93,16 @@ export default function RabsHome() {
         <Link href="/rabs/new" className="md:hidden flex items-center justify-center gap-2 h-14 rounded-2xl bg-brand text-white text-lg font-extrabold shadow-lg shadow-brand/30">
           <Plus size={22} /> NEW ENQUIRY
         </Link>
+      )}
+
+      {help && (
+        <HowItWorks
+          office={office}
+          onClose={() => {
+            localStorage.setItem(HELP_KEY, '1');
+            setHelp(false);
+          }}
+        />
       )}
 
       {d.myWork?.length > 0 && (

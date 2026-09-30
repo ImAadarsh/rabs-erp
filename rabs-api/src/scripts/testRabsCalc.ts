@@ -7,7 +7,7 @@ import {
   ftInToMetres, metresToFtIn, roomDimensions, rollCutArea, productQuantity, accessoryQuantity,
   labourCharge, quoteTotals, depositRequired, balanceDue, addVat
 } from '../services/rabs/rabsCalc.js';
-import { deriveStatus } from '../services/rabs/rabsWorkflow.js';
+import { deriveStatus, DEFAULT_STATUSES, PROGRESS_STEPS } from '../services/rabs/rabsWorkflow.js';
 
 let passed = 0;
 function t(name: string, fn: () => void) {
@@ -168,6 +168,78 @@ t('workflow status derivation', () => {
   assert.equal(deriveStatus({ ...done, invoiceIssued: true, paid: 400, balance: 0, autoClose: true }), 'CLOSED');
   assert.equal(deriveStatus({ ...done, hasIssue: true }), 'ISSUE');
   assert.equal(deriveStatus({ ...done, closed: true }), 'CLOSED');
+});
+
+t('awkward input: 12ft 11in, 11.99in, zero, NaN, huge', () => {
+  assert.equal(ftInToMetres(12, 11), 3.937);
+  assert.equal(ftInToMetres(0, 11.99), 0.305);
+  assert.throws(() => ftInToMetres(Number.NaN, 0));
+  assert.throws(() => ftInToMetres(10, Number.NaN));
+  assert.throws(() => roomDimensions(Number.NaN, 4));
+  assert.throws(() => roomDimensions(4, 0));
+  assert.throws(() => roomDimensions(-3, 4));
+  assert.throws(() => roomDimensions(4, 1e9));
+  const d = roomDimensions(ftInToMetres(12, 11), ftInToMetres(9, 3));
+  assert.equal(d.areaM2, 11.1);
+  assert.equal(d.areaSqyd, 13.27);
+});
+
+t('deposit rule changes apply to the amount, VAT is per quote', () => {
+  const s = { depositMode: 'percent', depositPercent: 30, depositFixedAmount: 0, depositMinAmount: 0 } as const;
+  assert.equal(depositRequired(1238.06, s), 371.42);
+  assert.equal(depositRequired(1238.06, { ...s, depositPercent: 25 }), 309.52);
+  const at20 = quoteTotals({ lines: [{ lineTotal: 100, lineCost: 0 }], discountType: 'none', discountValue: 0, deliveryCharge: 0, vatRate: 0.2 });
+  const at0 = quoteTotals({ lines: [{ lineTotal: 100, lineCost: 0 }], discountType: 'none', discountValue: 0, deliveryCharge: 0, vatRate: 0 });
+  assert.equal(at20.total, 120);
+  assert.equal(at0.total, 100);
+});
+
+t('part / over payment balances', () => {
+  assert.equal(balanceDue(1238.06, 309.52), 928.54);
+  assert.equal(balanceDue(1238.06, 309.52 + 500), 428.54);
+  assert.equal(balanceDue(1238.06, 1238.06), 0);
+  assert.equal(balanceDue(1238.06, 2000), 0);
+});
+
+t('progress bar labels match the spec exactly', () => {
+  assert.equal(
+    PROGRESS_STEPS.map((s) => s.label).join(' → '),
+    'APPOINTMENT → MEASURE → QUOTE → ACCEPTED → DEPOSIT → MATERIAL → FITTING/DELIVERY → COMPLETE → BALANCE → CLOSED'
+  );
+});
+
+t('status colours match the spec', () => {
+  const c = Object.fromEntries(DEFAULT_STATUSES.map((s) => [s.code, s.color.toUpperCase()]));
+  const want: Record<string, string> = {
+    NEW: '#6B7280', APPOINTMENT: '#2563EB', MEASUREMENT: '#7C3AED', QUOTE_DRAFT: '#D1D5DB', QUOTE_SENT: '#F59E0B', ACCEPTED: '#16A34A',
+    DEPOSIT_PENDING: '#EA580C', CONFIRMED: '#0D9488', MATERIALS_PENDING: '#DC2626', READY_TO_FIT: '#0E9F9A', FITTING_BOOKED: '#2563EB',
+    FITTING_TODAY: '#FACC15', FITTING_COMPLETE: '#16A34A', DELIVERY_BOOKED: '#2563EB', DELIVERY_COMPLETE: '#16A34A', BALANCE_PENDING: '#EA580C',
+    FULLY_PAID: '#166534', ISSUE: '#DC2626', CLOSED: '#111111'
+  };
+  for (const [k, v] of Object.entries(want)) assert.equal(c[k], v, k);
+});
+
+t('next-step buttons match the spec table', () => {
+  const n = Object.fromEntries(DEFAULT_STATUSES.map((s) => [s.code, s.nextActionLabel]));
+  assert.equal(n.APPOINTMENT, 'START MEASUREMENT');
+  assert.equal(n.MEASUREMENT, 'CREATE QUOTATION');
+  assert.equal(n.QUOTE_SENT, 'ACCEPT & CREATE JOB');
+  assert.equal(n.CONFIRMED, 'CHECK MATERIALS');
+  assert.equal(n.READY_TO_FIT, 'BOOK FITTING');
+  assert.equal(n.DELIVERY_REQUIRED, 'BOOK DELIVERY');
+  assert.equal(n.FITTING_COMPLETE, 'COLLECT BALANCE');
+  assert.equal(n.FULLY_PAID, 'CLOSE JOB');
+});
+
+t('fitting date drives Fitting Today / Booked', () => {
+  const ready = {
+    closed: false, hasIssue: false, converted: true, acceptedQuote: true, quoteStatus: 'accepted', hasMeasurement: true, hasAppointment: true,
+    depositRequired: 0, paid: 0, balance: 100, materialsStatus: 'ready', requiresFitting: true, requiresDelivery: false,
+    fitting: { status: 'booked', date: '2026-10-01' }, delivery: null, invoiceIssued: false, autoClose: false, today: '2026-09-30'
+  };
+  assert.equal(deriveStatus(ready), 'FITTING_BOOKED');
+  assert.equal(deriveStatus({ ...ready, today: '2026-10-01' }), 'FITTING_TODAY');
+  assert.equal(deriveStatus({ ...ready, fitting: { status: 'in_progress', date: '2026-10-01' }, today: '2026-10-01' }), 'FITTING_TODAY');
 });
 
 console.log(`\n${passed} calculation/workflow checks passed.`);

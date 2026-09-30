@@ -243,9 +243,10 @@ function TopBar({ fieldOnly }: { fieldOnly: boolean }) {
                   </button>
                 ))}
                 {res?.customersWithoutJobs.map((c) => (
-                  <div key={c.id} className="px-4 py-3 text-sm border-t border-border/60">
+                  <button key={c.id} onClick={() => go(`/rabs/new?customer=${c.id}`)} className="w-full text-left px-4 py-3 text-sm border-t border-border/60 hover:bg-muted">
                     {c.name} · <span className="text-muted-foreground">{c.phone || c.address}</span>
-                  </div>
+                    <span className="block text-xs text-brand font-semibold">No job yet — start a new enquiry</span>
+                  </button>
                 ))}
               </div>
             </>
