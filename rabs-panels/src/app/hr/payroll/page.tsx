@@ -6,6 +6,7 @@ import { Header } from '@/components/header';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import {
   listPayrollRuns, createPayrollRun, listPayrollLines, listPayslips,
   listTaxDocuments, createTaxDocument, listEmployees, listBusinessUnits,
@@ -20,6 +21,9 @@ export default function PayrollPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'FINANCE', 'HR_MANAGER', 'HR_ADMIN']);
+  const { can } = useApiAccess();
+  const canCreateRun = can('POST', '/api/hr/payroll-runs');
+  const canCreateTaxDoc = can('POST', '/api/hr/tax-documents');
   const [tab, setTab] = useState<'runs' | 'payslips' | 'tax'>('runs');
   const [loading, setLoading] = useState(true);
   const [runs, setRuns] = useState<any[]>([]);
@@ -213,17 +217,17 @@ export default function PayrollPage() {
                 </button>
               ))}
             </div>
-            {tab === 'runs' && (
+            {tab === 'runs' && canCreateRun && (
               <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-2 h-10 px-4 rounded-xl bg-brand hover:bg-brand-600 text-white text-sm font-medium shadow-lg shadow-brand/20">
                 <Plus size={14} /> Create payroll run
               </button>
             )}
-            {tab === 'tax' && (
+            {tab === 'tax' && canCreateTaxDoc && (
               <button type="button" onClick={() => setTaxOpen(true)} className="inline-flex items-center gap-2 h-10 px-4 rounded-xl bg-brand hover:bg-brand-600 text-white text-sm font-medium shadow-lg shadow-brand/20">
                 <Plus size={14} /> Add P45/P60
               </button>
             )}
-            {tab === 'payslips' && (
+            {tab === 'payslips' && canCreateRun && (
               <button type="button" onClick={() => { setTab('runs'); setOpen(true); }} className="inline-flex items-center gap-2 h-10 px-4 rounded-xl bg-brand hover:bg-brand-600 text-white text-sm font-medium shadow-lg shadow-brand/20">
                 <Plus size={14} /> Create payroll run
               </button>

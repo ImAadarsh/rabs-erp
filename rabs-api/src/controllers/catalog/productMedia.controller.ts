@@ -6,6 +6,13 @@ import { Variant } from '@entities/catalog/Variant.js';
 import { z } from 'zod';
 import { uploadFile, deleteFileByUrl } from '@utils/storage.js';
 import { IsNull } from 'typeorm';
+import { zodMessage } from '@services/catalog/zodMessage.js';
+
+/** Multipart bodies send booleans as strings; z.coerce.boolean() would turn "false" into true. */
+const formBoolean = z.preprocess(
+  (v) => (typeof v === 'string' ? ['true', '1', 'on'].includes(v.toLowerCase()) : v),
+  z.boolean()
+);
 
 const createProductMediaSchema = z.object({
   catalogItemId: z.string(),
@@ -13,7 +20,7 @@ const createProductMediaSchema = z.object({
   type: z.enum(['image', 'video', 'document', '3d_model']),
   altText: z.string().optional(),
   position: z.coerce.number().int().optional(),
-  isPrimary: z.coerce.boolean().optional()
+  isPrimary: formBoolean.optional()
 });
 
 const updateProductMediaSchema = z.object({
@@ -21,7 +28,7 @@ const updateProductMediaSchema = z.object({
   type: z.enum(['image', 'video', 'document', '3d_model']).optional(),
   altText: z.string().optional(),
   position: z.coerce.number().int().optional(),
-  isPrimary: z.coerce.boolean().optional()
+  isPrimary: formBoolean.optional()
 });
 
 export class ProductMediaController {
@@ -69,7 +76,7 @@ export class ProductMediaController {
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createProductMediaSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
@@ -179,7 +186,7 @@ export class ProductMediaController {
     const parsed = updateProductMediaSchema.safeParse(req.body);
     
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 

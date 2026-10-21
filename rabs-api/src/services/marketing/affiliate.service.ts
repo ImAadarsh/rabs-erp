@@ -265,12 +265,62 @@ export async function listConversions(opts: { organizationId: string; affiliateI
 export async function listPayouts(opts: { organizationId: string; affiliateId?: string }) {
   const affIds = await orgAffiliateIds(opts.organizationId, opts.affiliateId);
   if (!affIds.length) return [];
-  return AppDataSource.getRepository(AffiliatePayout)
+  const rows = await AppDataSource.getRepository(AffiliatePayout)
     .createQueryBuilder('p')
+    .leftJoinAndSelect('p.affiliate', 'a')
     .where('p.affiliate_id IN (:...ids)', { ids: affIds })
-    .orderBy('p.created_at', 'DESC')
+    .orderBy('p.createdAt', 'DESC')
     .take(200)
     .getMany();
+  return rows.map(({ affiliate, ...p }) => ({
+    ...p,
+    affiliateCode: affiliate?.affiliateCode ?? null,
+    affiliateName: affiliate?.companyName || affiliate?.contactName || null
+  }));
+}
+
+/** Conversions an affiliate payout covers: the affiliate's conversions within the payout period. */
+function payoutConversionsQuery(payout: AffiliatePayout) {
+  const start = new Date(payout.periodStart);
+  const end = new Date(payout.periodEnd);
+  return AppDataSource.getRepository(AffiliateConversion)
+    .createQueryBuilder('c')
+    .leftJoin('c.order', 'o')
+    .addSelect(['o.id', 'o.orderNumber', 'o.status', 'o.orderDate'])
+    .where('c.affiliate_id = :aid', { aid: payout.affiliateId })
+    .andWhere('c.converted_at >= :start', { start })
+    .andWhere('c.converted_at <= :end', { end: new Date(end.getTime() + 86400000 - 1) })
+    .orderBy('c.convertedAt', 'DESC');
+}
+
+export async function getPayoutDetail(opts: { payoutId: string; organizationId: string }) {
+  const payout = await AppDataSource.getRepository(AffiliatePayout).findOne({
+    where: { id: opts.payoutId },
+    relations: ['affiliate', 'approvedBy']
+  });
+  if (!payout || String(payout.affiliate.organizationId) !== String(opts.organizationId)) {
+    throw Object.assign(new Error('Payout not found'), { status: 404 });
+  }
+  const conversions = await payoutConversionsQuery(payout).getMany();
+  const { affiliate, approvedBy, ...rest } = payout;
+  return {
+    ...rest,
+    affiliateCode: affiliate.affiliateCode,
+    affiliateName: affiliate.companyName || affiliate.contactName,
+    affiliateEmail: affiliate.email,
+    approvedByName: approvedBy ? [approvedBy.firstName, approvedBy.lastName].filter(Boolean).join(' ') || approvedBy.email : null,
+    conversions: conversions.map((c) => ({
+      id: c.id,
+      convertedAt: c.convertedAt,
+      channel: c.channel ?? null,
+      orderId: c.orderId,
+      orderNumber: c.order?.orderNumber ?? null,
+      orderStatus: c.order?.status ?? null,
+      orderValue: num(c.orderValue),
+      commissionAmount: num(c.commissionAmount),
+      currency: c.currency
+    }))
+  };
 }
 
 async function orgAffiliateIds(organizationId: string, affiliateId?: string): Promise<string[]> {
@@ -302,6 +352,32 @@ export async function createPayout(opts: {
 
   const start = new Date(opts.periodStart);
   const end = new Date(opts.periodEnd);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+    throw Object.assign(new Error('Invalid payout period'), { status: 400 });
+  }
+
+  // Overlapping periods would pay the same conversions twice.
+  const overlap = await AppDataSource.getRepository(AffiliatePayout)
+    .createQueryBuilder('p')
+    .where('p.affiliate_id = :aid', { aid: opts.affiliateId })
+    .andWhere("p.status <> 'failed'")
+    .andWhere('p.period_start <= :end AND p.period_end >= :start', {
+      start: opts.periodStart.slice(0, 10),
+      end: opts.periodEnd.slice(0, 10)
+    })
+    .orderBy('p.period_end', 'DESC')
+    .getOne();
+  if (overlap) {
+    const fmt = (d: Date | string) => new Date(d).toISOString().slice(0, 10);
+    throw Object.assign(
+      new Error(
+        `Payout ${overlap.payoutNumber} already covers ${fmt(overlap.periodStart)} to ${fmt(overlap.periodEnd)}. ` +
+          'Start the new period after it, or mark that payout as failed first.'
+      ),
+      { status: 409 }
+    );
+  }
+
   const conversions = await AppDataSource.getRepository(AffiliateConversion)
     .createQueryBuilder('c')
     .where('c.affiliate_id = :aid', { aid: opts.affiliateId })
@@ -346,12 +422,16 @@ export async function updatePayoutStatus(opts: {
   if (!payout || String(payout.affiliate.organizationId) !== String(opts.organizationId)) {
     throw Object.assign(new Error('Payout not found'), { status: 404 });
   }
+  const wasPaid = payout.status === 'paid';
+  if (wasPaid && opts.status !== 'paid') {
+    throw Object.assign(new Error('This payout is already paid and cannot change status'), { status: 400 });
+  }
   payout.status = opts.status;
   if (opts.status === 'approved') {
     payout.approvedAt = new Date();
     payout.approvedById = opts.approvedById ?? null;
   }
-  if (opts.status === 'paid') {
+  if (opts.status === 'paid' && !wasPaid) {
     payout.paidAt = new Date();
     const amount = num(payout.payoutAmount ?? num(payout.totalCommission) + num(payout.adjustments));
     await AppDataSource.getRepository(Affiliate)

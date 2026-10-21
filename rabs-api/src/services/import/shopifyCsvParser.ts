@@ -58,11 +58,12 @@ export function parseShopifyProductsCsv(csvText: string): ParsedProduct[] {
       const imageSrc = row['Image Src']?.trim();
       const imagePos = parseInt(row['Image Position'] || '0', 10) || 0;
 
+      const csvSku = row['Variant SKU']?.trim().replace(/^'/, '').slice(0, 100) || '';
       const isVariantRow =
-        Boolean(o1 || o2) && (price !== undefined || qty !== undefined);
+        Boolean(o1 || o2) && (price !== undefined || qty !== undefined || Boolean(csvSku));
 
       if (isVariantRow) {
-        const variantSku = buildVariantSku(handle, o1, o2);
+        const variantSku = csvSku || buildVariantSku(handle, o1, o2);
         const channelVariantId = [handle, o1, o2].filter(Boolean).join('|');
         const existing = variants.find((v) => v.variantSku === variantSku);
         if (!existing) {
@@ -90,7 +91,7 @@ export function parseShopifyProductsCsv(csvText: string): ParsedProduct[] {
         media.push({
           url: imageSrc,
           position: imagePos || media.length + 1,
-          variantSku: isVariantRow ? buildVariantSku(handle, o1, o2) : undefined
+          variantSku: isVariantRow ? csvSku || buildVariantSku(handle, o1, o2) : undefined
         });
       }
     }
@@ -98,8 +99,9 @@ export function parseShopifyProductsCsv(csvText: string): ParsedProduct[] {
     if (variants.length === 0) {
       const price = parseNum(master['Variant Price']);
       const qty = parseNum(master['Variant Inventory Qty']);
+      const masterSku = master['Variant SKU']?.trim().replace(/^'/, '').slice(0, 100);
       variants.push({
-        variantSku: buildVariantSku(handle, 'default'),
+        variantSku: masterSku || buildVariantSku(handle, 'default'),
         channelVariantId: handle,
         name: 'Default',
         option1Name: 'Title',

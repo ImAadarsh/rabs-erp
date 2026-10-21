@@ -3,14 +3,83 @@ import { AppDataSource } from '@config/data-source.js';
 import { LedgerAccount } from '@entities/finance/LedgerAccount.js';
 import { z } from 'zod';
 import { ChartOfAccounts } from '@entities/finance/ChartOfAccounts.js';
+import { zodMessage } from '@services/finance/zodMessage.js';
+
+export const LEDGER_ACCOUNT_TYPES = [
+  { value: 'asset', label: 'Asset', normalBalance: 'debit' },
+  { value: 'liability', label: 'Liability', normalBalance: 'credit' },
+  { value: 'equity', label: 'Equity', normalBalance: 'credit' },
+  { value: 'revenue', label: 'Revenue', normalBalance: 'credit' },
+  { value: 'expense', label: 'Expense', normalBalance: 'debit' },
+  { value: 'cost_of_goods_sold', label: 'Cost of Goods Sold', normalBalance: 'debit' }
+] as const;
+
+/** Standard UK subtypes per account type (values match seedAccounting). Custom values already in use are appended. */
+export const LEDGER_ACCOUNT_SUBTYPES: Record<string, Array<{ value: string; label: string }>> = {
+  asset: [
+    { value: 'bank', label: 'Bank' },
+    { value: 'cash', label: 'Cash' },
+    { value: 'receivable', label: 'Trade debtors (receivable)' },
+    { value: 'current_asset', label: 'Current asset' },
+    { value: 'inventory', label: 'Stock / inventory' },
+    { value: 'prepayment', label: 'Prepayment' },
+    { value: 'vat', label: 'VAT recoverable' },
+    { value: 'fixed_asset', label: 'Fixed asset' },
+    { value: 'contra_asset', label: 'Accumulated depreciation (contra asset)' }
+  ],
+  liability: [
+    { value: 'payable', label: 'Trade creditors (payable)' },
+    { value: 'current_liability', label: 'Current liability' },
+    { value: 'vat', label: 'VAT payable' },
+    { value: 'payroll', label: 'Payroll control' },
+    { value: 'accrual', label: 'Accrual' },
+    { value: 'loan', label: 'Loan' },
+    { value: 'long_term_liability', label: 'Long-term liability' }
+  ],
+  equity: [
+    { value: 'capital', label: 'Share capital' },
+    { value: 'retained', label: 'Retained earnings' },
+    { value: 'drawings', label: 'Drawings' }
+  ],
+  revenue: [
+    { value: 'sales', label: 'Sales' },
+    { value: 'other', label: 'Other income' }
+  ],
+  expense: [
+    { value: 'overhead', label: 'Overhead' },
+    { value: 'payroll', label: 'Payroll' },
+    { value: 'depreciation', label: 'Depreciation' },
+    { value: 'bank', label: 'Bank charges' },
+    { value: 'other', label: 'Other expense' }
+  ],
+  cost_of_goods_sold: [{ value: 'cogs', label: 'Cost of sales' }]
+};
+
+const humanizeSubtype = (v: string) => v.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+
+/** Blank → null so clearing the field in the UI really clears it. */
+const subtypeField = z
+  .string()
+  .max(100)
+  .nullable()
+  .optional()
+  .transform((v) => (v === undefined ? undefined : v?.trim() || null));
+
+const ACCOUNT_TYPE_VALUES = LEDGER_ACCOUNT_TYPES.map((t) => t.value) as [
+  (typeof LEDGER_ACCOUNT_TYPES)[number]['value'],
+  ...(typeof LEDGER_ACCOUNT_TYPES)[number]['value'][]
+];
+const accountTypeEnum = z.enum(ACCOUNT_TYPE_VALUES, {
+  errorMap: () => ({ message: `Account type must be one of: ${ACCOUNT_TYPE_VALUES.join(', ')}` })
+});
 
 const createLedgerAccountSchema = z.object({
   chartOfAccountsId: z.string(),
   parentAccountId: z.string().optional(),
   accountCode: z.string().min(1),
   accountName: z.string().min(1),
-  accountType: z.enum(['asset', 'liability', 'equity', 'revenue', 'expense', 'cost_of_goods_sold']),
-  accountSubtype: z.string().optional(),
+  accountType: accountTypeEnum,
+  accountSubtype: subtypeField,
   normalBalance: z.enum(['debit', 'credit']),
   description: z.string().optional(),
   isSystem: z.coerce.boolean().optional(),
@@ -21,14 +90,46 @@ const updateLedgerAccountSchema = z.object({
   parentAccountId: z.string().optional(),
   accountCode: z.string().min(1).optional(),
   accountName: z.string().min(1).optional(),
-  accountType: z.enum(['asset', 'liability', 'equity', 'revenue', 'expense', 'cost_of_goods_sold']).optional(),
-  accountSubtype: z.string().optional(),
+  accountType: accountTypeEnum.optional(),
+  accountSubtype: subtypeField,
   normalBalance: z.enum(['debit', 'credit']).optional(),
-  description: z.string().optional(),
+  description: z.string().nullable().optional(),
   isActive: z.coerce.boolean().optional()
 });
 
 export class LedgerAccountsController {
+  static async types(req: Request, res: Response): Promise<void> {
+    try {
+      const qb = AppDataSource.getRepository(LedgerAccount)
+        .createQueryBuilder('la')
+        .select('la.account_type', 'accountType')
+        .addSelect('la.account_subtype', 'accountSubtype')
+        .where('la.account_subtype IS NOT NULL')
+        .andWhere("la.account_subtype <> ''")
+        .groupBy('la.account_type')
+        .addGroupBy('la.account_subtype');
+      if (req.query.organizationId) {
+        qb.innerJoin('la.chartOfAccounts', 'coa').andWhere('coa.organization_id = :oid', {
+          oid: String(req.query.organizationId)
+        });
+      }
+      const rows: Array<{ accountType: string; accountSubtype: string }> = await qb.getRawMany();
+      res.json({
+        data: LEDGER_ACCOUNT_TYPES.map((t) => {
+          const standard = LEDGER_ACCOUNT_SUBTYPES[t.value] ?? [];
+          const custom = rows
+            .filter((r) => r.accountType === t.value && !standard.some((s) => s.value === r.accountSubtype))
+            .map((r) => ({ value: r.accountSubtype, label: humanizeSubtype(r.accountSubtype) }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+          const subtypeOptions = [...standard, ...custom];
+          return { ...t, subtypes: subtypeOptions.map((s) => s.value), subtypeOptions };
+        })
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: { message: error.message } });
+    }
+  }
+
   static async list(req: Request, res: Response): Promise<void> {
     try {
       const repo = AppDataSource.getRepository(LedgerAccount);
@@ -100,7 +201,7 @@ export class LedgerAccountsController {
     try {
       const parsed = createLedgerAccountSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 
@@ -167,7 +268,7 @@ export class LedgerAccountsController {
       const parsed = updateLedgerAccountSchema.safeParse(req.body);
       
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 

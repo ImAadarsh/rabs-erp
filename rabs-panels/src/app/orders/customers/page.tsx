@@ -9,6 +9,7 @@ import { RichDataTable } from '@/components/rich-data-table';
 import { FilterBar, type FilterField } from '@/components/filter-bar';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
 import { Pencil, Trash2, Plus, X, User, RefreshCw } from 'lucide-react';
 
@@ -30,7 +31,13 @@ export default function CustomersPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'CUSTOMER_SERVICE']);
+  const { can } = useApiAccess();
+  const canCreate = can('POST', '/api/orders/customers');
+  const canUpdate = can('PATCH', '/api/orders/customers/:id');
+  const canDelete = can('DELETE', '/api/orders/customers/:id');
   const [loading, setLoading] = useState(true);
+  // Full-page loader only until the first load; later reloads keep the table on screen.
+  const [loadedOnce, setLoadedOnce] = useState(false);
   const [items, setItems] = useState<Customer[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({
@@ -63,6 +70,7 @@ export default function CustomersPage() {
       toast.error('Failed to load customers');
     } finally {
       setLoading(false);
+      setLoadedOnce(true);
     }
   }, [orgId, search, filters]);
 
@@ -214,6 +222,7 @@ export default function CustomersPage() {
       header: 'Actions',
       cell: ({ row }) => (
         <div className="flex gap-2">
+          {canUpdate && (
           <button
             onClick={() => {
               setEditing(row.original);
@@ -232,15 +241,18 @@ export default function CustomersPage() {
           >
             <Pencil className="h-4 w-4" />
           </button>
+          )}
+          {canDelete && (
           <button onClick={() => setConfirmDel(row.original)} className="p-1 hover:bg-muted rounded text-red-500">
             <Trash2 className="h-4 w-4" />
           </button>
+          )}
         </div>
       )
     }
-  ], []);
+  ], [canUpdate, canDelete]);
 
-  if (!hydrated || loading) {
+  if (!hydrated || (loading && !loadedOnce)) {
     return (
       <div className="min-h-screen app-surface">
         <Sidebar />
@@ -310,7 +322,7 @@ export default function CustomersPage() {
                     <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                     Refresh
                   </button>
-                  {hasAccess && (
+                  {canCreate && (
                     <button
                       onClick={() => setShowCreate(true)}
                       className="flex items-center gap-2 px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-600"
@@ -328,7 +340,10 @@ export default function CustomersPage() {
                 <div className="text-sm text-muted-foreground">Loading customers...</div>
               </div>
             ) : (
-              <div className="rounded-2xl border border-border bg-card p-2">
+              <div
+                className={`rounded-2xl border border-border bg-card p-2 transition-opacity ${loading ? 'opacity-60' : ''}`}
+                aria-busy={loading}
+              >
                 <RichDataTable columns={columns} data={items} hideSearch />
               </div>
             )}

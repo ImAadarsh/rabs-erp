@@ -1,7 +1,10 @@
 'use client';
 import { useParams, useRouter } from 'next/navigation';
 import { modules } from '@/data/modules';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useApiAccess } from '@/hooks/use-api-access';
+import { DateRangeFilter, rangeForPreset, inRange, bucketsForRange, bucketKey, type DateRange } from '@/components/date-range-filter';
 import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
 import { getSession } from '@/lib/auth';
@@ -16,6 +19,8 @@ export default function ModuleDashboardPage() {
   const router = useRouter();
   const params = useParams<{ module: string }>();
   const mod = modules.find((m) => m.slug === params.module);
+  const { can, ready: accessReady } = useApiAccess();
+  const canListApiKeys = can('GET', '/api/iam/api-keys');
   const [stats, setStats] = useState({
     totalUsers: 0,
     totalAdmins: 0,
@@ -51,15 +56,17 @@ export default function ModuleDashboardPage() {
   }, [router]);
 
   useEffect(() => {
+    if (!accessReady) return;
+    const none = Promise.resolve({ data: [] as any[] });
     if (params.module === 'catalog') {
       (async () => {
         try {
           const s = getSession();
           const [itemsRes, variantsRes, priceListsRes, taxCodesRes] = await Promise.all([
-            listCatalogItems({ organizationId: s?.user?.organizationId }).catch(() => ({ data: [] })),
-            listVariants().catch(() => ({ data: [] })),
-            listPriceLists({ organizationId: s?.user?.organizationId }).catch(() => ({ data: [] })),
-            listTaxCodes({ organizationId: s?.user?.organizationId }).catch(() => ({ data: [] }))
+            can('GET', '/api/catalog/items') ? listCatalogItems({ organizationId: s?.user?.organizationId }).catch(() => ({ data: [] })) : none,
+            can('GET', '/api/catalog/variants') ? listVariants().catch(() => ({ data: [] })) : none,
+            can('GET', '/api/catalog/price-lists') ? listPriceLists({ organizationId: s?.user?.organizationId }).catch(() => ({ data: [] })) : none,
+            can('GET', '/api/catalog/tax-codes') ? listTaxCodes({ organizationId: s?.user?.organizationId }).catch(() => ({ data: [] })) : none
           ]);
 
           const items = itemsRes.data || [];
@@ -197,7 +204,7 @@ export default function ModuleDashboardPage() {
             listOrganizations().catch(() => ({ data: [] })),
             listBusinessUnits().catch(() => ({ data: [] })),
             listLocations().catch(() => ({ data: [] })),
-            listApiKeys().catch(() => ({ data: [] }))
+            can('GET', '/api/iam/api-keys') ? listApiKeys().catch(() => ({ data: [] })) : none
           ]);
 
           const users = usersRes.data || [];
@@ -427,7 +434,8 @@ export default function ModuleDashboardPage() {
     } else {
       setLoading(false);
     }
-  }, [params.module]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.module, accessReady]);
 
   if (!mod) {
     if (typeof window !== 'undefined') router.replace('/modules');
@@ -462,12 +470,14 @@ export default function ModuleDashboardPage() {
                   hint="Defined roles"
                   icon={<Shield size={20} />}
                 />
-                <StatCard
-                  title="API Keys"
-                  value={loading ? '...' : stats.apiKeys.toString()}
-                  hint="Active keys"
-                  icon={<Key size={20} />}
-                />
+                {canListApiKeys && (
+                  <StatCard
+                    title="API Keys"
+                    value={loading ? '...' : stats.apiKeys.toString()}
+                    hint="Active keys"
+                    icon={<Key size={20} />}
+                  />
+                )}
                 <StatCard
                   title="Audit Logs"
                   value={loading ? '...' : stats.auditLogs.toString()}
@@ -499,26 +509,28 @@ export default function ModuleDashboardPage() {
                 <div className="rounded-2xl border border-border bg-card p-6">
                   <div className="text-sm font-medium text-muted-foreground mb-4 uppercase tracking-wider">Quick Actions</div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <a href="/iam/users" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                    <Link href="/iam/users" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
                       <Users size={20} className="text-primary mb-2" />
                       <div className="font-medium text-sm">Manage Users</div>
                       <div className="text-xs text-muted-foreground mt-1">View and edit users</div>
-                    </a>
-                    <a href="/iam/roles" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                    </Link>
+                    <Link href="/iam/roles" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
                       <Shield size={20} className="text-primary mb-2" />
                       <div className="font-medium text-sm">Manage Roles</div>
                       <div className="text-xs text-muted-foreground mt-1">Configure permissions</div>
-                    </a>
-                    <a href="/iam/api-keys" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
-                      <Key size={20} className="text-primary mb-2" />
-                      <div className="font-medium text-sm">API Keys</div>
-                      <div className="text-xs text-muted-foreground mt-1">Manage access keys</div>
-                    </a>
-                    <a href="/iam/audit-logs" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                    </Link>
+                    {canListApiKeys && (
+                      <Link href="/iam/api-keys" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                        <Key size={20} className="text-primary mb-2" />
+                        <div className="font-medium text-sm">API Keys</div>
+                        <div className="text-xs text-muted-foreground mt-1">Manage access keys</div>
+                      </Link>
+                    )}
+                    <Link href="/iam/audit-logs" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
                       <FileText size={20} className="text-primary mb-2" />
                       <div className="font-medium text-sm">Audit Logs</div>
                       <div className="text-xs text-muted-foreground mt-1">View activity logs</div>
-                    </a>
+                    </Link>
                   </div>
                 </div>
               </section>
@@ -684,26 +696,26 @@ export default function ModuleDashboardPage() {
                 <div className="rounded-2xl border border-border bg-card p-6">
                   <div className="text-sm font-medium text-muted-foreground mb-4 uppercase tracking-wider">Quick Actions</div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <a href="/catalog/items" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                    <Link href="/catalog/items" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
                       <Package2 size={20} className="text-primary mb-2" />
                       <div className="font-medium text-sm">Catalog Items</div>
                       <div className="text-xs text-muted-foreground mt-1">Manage products</div>
-                    </a>
-                    <a href="/catalog/variants" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                    </Link>
+                    <Link href="/catalog/variants" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
                       <Tag size={20} className="text-primary mb-2" />
                       <div className="font-medium text-sm">Variants</div>
                       <div className="text-xs text-muted-foreground mt-1">Manage variants</div>
-                    </a>
-                    <a href="/catalog/price-lists" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                    </Link>
+                    <Link href="/catalog/price-lists" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
                       <DollarSign size={20} className="text-primary mb-2" />
                       <div className="font-medium text-sm">Price Lists</div>
                       <div className="text-xs text-muted-foreground mt-1">Manage pricing</div>
-                    </a>
-                    <a href="/catalog/tax-codes" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                    </Link>
+                    <Link href="/catalog/tax-codes" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
                       <Receipt size={20} className="text-primary mb-2" />
                       <div className="font-medium text-sm">Tax Codes</div>
                       <div className="text-xs text-muted-foreground mt-1">Manage taxes</div>
-                    </a>
+                    </Link>
                   </div>
                 </div>
               </section>
@@ -809,21 +821,21 @@ export default function ModuleDashboardPage() {
                 <div className="rounded-2xl border border-border bg-card p-6">
                   <div className="text-sm font-medium text-muted-foreground mb-4 uppercase tracking-wider">Quick Actions</div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <a href="/fulfillment/pick-pack" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                    <Link href="/fulfillment/pick-pack" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
                       <Package size={20} className="text-primary mb-2" />
                       <div className="font-medium text-sm">Pick & Pack</div>
                       <div className="text-xs text-muted-foreground mt-1">Manage processing</div>
-                    </a>
-                    <a href="/fulfillment/shipments" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                    </Link>
+                    <Link href="/fulfillment/shipments" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
                       <Truck size={20} className="text-primary mb-2" />
                       <div className="font-medium text-sm">Shipments</div>
                       <div className="text-xs text-muted-foreground mt-1">Manage dispatches</div>
-                    </a>
-                    <a href="/fulfillment/tracking" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                    </Link>
+                    <Link href="/fulfillment/tracking" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
                       <MapPin size={20} className="text-primary mb-2" />
                       <div className="font-medium text-sm">Tracking</div>
                       <div className="text-xs text-muted-foreground mt-1">Live parcel tracker</div>
-                    </a>
+                    </Link>
                   </div>
                 </div>
               </section>
@@ -840,21 +852,21 @@ export default function ModuleDashboardPage() {
                 <div className="rounded-2xl border border-border bg-card p-6">
                   <div className="text-sm font-medium text-muted-foreground mb-4 uppercase tracking-wider">Quick Actions</div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <a href="/system/settings" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                    <Link href="/system/settings" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
                       <Settings size={20} className="text-primary mb-2" />
                       <div className="font-medium text-sm">Settings</div>
                       <div className="text-xs text-muted-foreground mt-1">Global platform config</div>
-                    </a>
-                    <a href="/system/templates" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                    </Link>
+                    <Link href="/system/templates" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
                       <FileText size={20} className="text-primary mb-2" />
                       <div className="font-medium text-sm">Templates</div>
                       <div className="text-xs text-muted-foreground mt-1">Email, SMS, & PDF</div>
-                    </a>
-                    <a href="/system/webhooks" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
+                    </Link>
+                    <Link href="/system/webhooks" className="p-4 rounded-xl border border-border hover:border-primary/30 hover:bg-primary/5 transition-all group">
                       <Share2 size={20} className="text-primary mb-2" />
                       <div className="font-medium text-sm">Webhooks</div>
                       <div className="text-xs text-muted-foreground mt-1">Third-party callbacks</div>
-                    </a>
+                    </Link>
                   </div>
                 </div>
               </section>

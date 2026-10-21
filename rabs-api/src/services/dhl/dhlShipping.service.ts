@@ -8,6 +8,7 @@ import { B2bShipmentEvent } from '@entities/b2b/B2bShipmentEvent.js';
 import { publicObjectUrl } from '@utils/storage.js';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { v4 as uuidv4 } from 'uuid';
+import { trackingUrlFor } from '../fulfillment/carriers.js';
 import {
   buildCreateShipmentBody,
   cancelDhlShipment,
@@ -37,7 +38,7 @@ function requireCreds() {
   if (!creds) {
     throw Object.assign(
       new Error(
-        'DHL is not configured. Set DHL_API_KEY, DHL_API_SECRET, and DHL_ACCOUNT_NUMBER in rabs-api/.env (API Key + Secret from developer.dhl.com Apps → rabs_erp).'
+        'DHL API is not configured (DHL_API_KEY, DHL_API_SECRET, DHL_ACCOUNT_NUMBER missing on the server). Use "Manual carrier" to ship with Royal Mail, DPD, Evri, UPS, FedEx or a DHL tracking number booked outside the ERP.'
       ),
       { status: 503 }
     );
@@ -109,12 +110,13 @@ async function uploadLabelPdf(opts: {
   return { url: publicObjectUrl(key), key };
 }
 
-async function syncB2bShipment(opts: {
+export async function syncB2bShipment(opts: {
   order: Order;
   trackingNumber: string;
   status: B2bShipment['status'];
   labelUrl?: string | null;
   message: string;
+  carrier?: string;
 }) {
   const repo = AppDataSource.getRepository(B2bShipment);
   const existing = await repo.findOne({
@@ -122,7 +124,7 @@ async function syncB2bShipment(opts: {
     relations: ['order', 'customer', 'organization']
   });
   if (!existing) return;
-  existing.carrier = 'DHL';
+  existing.carrier = opts.carrier || 'DHL';
   existing.trackingNumber = opts.trackingNumber;
   existing.status = opts.status;
   if (opts.status === 'dispatched' || opts.status === 'in_transit') {
@@ -147,7 +149,7 @@ async function syncB2bShipment(opts: {
   );
 }
 
-function serializeShipment(s: OrderShipment) {
+export function serializeShipment(s: OrderShipment) {
   return {
     id: s.id,
     orderId: (s.order as any)?.id || undefined,
@@ -168,9 +170,9 @@ function serializeShipment(s: OrderShipment) {
     notes: s.notes,
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
-    trackingUrl: s.trackingNumber
-      ? `https://www.dhl.com/gb-en/home/tracking.html?tracking-id=${encodeURIComponent(s.trackingNumber)}`
-      : null
+    orderNumber: (s.order as any)?.orderNumber || undefined,
+    viaApi: Boolean(s.rawCreateResponse || s.labelS3Key) || (s.carrier === 'DHL' && ['draft', 'failed'].includes(s.status)),
+    trackingUrl: trackingUrlFor(s.carrier, s.trackingNumber)
   };
 }
 

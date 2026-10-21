@@ -7,6 +7,7 @@ import { getOrder, listOrderLines, listOrderAddresses, listOrderNotes, createOrd
 import { toast } from 'sonner';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ArrowLeft, Plus, Pencil, Trash2, X, Package, MapPin, FileText, ShoppingCart, Receipt, Loader2, Truck } from 'lucide-react';
 import Link from 'next/link';
 
@@ -16,6 +17,17 @@ export default function OrderDetailPage() {
   const orderId = params.id as string;
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'CUSTOMER_SERVICE', 'WAREHOUSE_MANAGER']);
+  const { can } = useApiAccess();
+  const canCreateLine = can('POST', '/api/orders/order-lines');
+  const canUpdateLine = can('PATCH', '/api/orders/order-lines/:id');
+  const canDeleteLine = can('DELETE', '/api/orders/order-lines/:id');
+  const canCreateAddress = can('POST', '/api/orders/order-addresses');
+  const canUpdateAddress = can('PATCH', '/api/orders/order-addresses/:id');
+  const canDeleteAddress = can('DELETE', '/api/orders/order-addresses/:id');
+  const canCreateNote = can('POST', '/api/orders/order-notes');
+  const canUpdateNote = can('PATCH', '/api/orders/order-notes/:id');
+  const canDeleteNote = can('DELETE', '/api/orders/order-notes/:id');
+  const canGenerateInvoice = can('POST', '/api/finance/invoices/generate');
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState<any>(null);
   const [lines, setLines] = useState<any[]>([]);
@@ -302,7 +314,8 @@ export default function OrderDetailPage() {
     }
   }
 
-  if (!hydrated || loading) {
+  // Full-page loader only before the order is first shown; reloads after edits keep the page.
+  if (!hydrated || (loading && !order)) {
     return (
       <div className="min-h-screen app-surface">
         <Sidebar />
@@ -344,7 +357,10 @@ export default function OrderDetailPage() {
       <Sidebar />
       <div className="flex flex-col overflow-hidden lg:ml-[280px]">
         <Header title={`Orders · ${order.orderNumber}`} />
-        <main className="flex-1 overflow-auto p-4 md:p-6">
+        <main
+          className={`flex-1 overflow-auto p-4 md:p-6 transition-opacity ${loading ? 'opacity-60' : ''}`}
+          aria-busy={loading}
+        >
           <div className="w-full space-y-6">
             {/* Header */}
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -374,7 +390,7 @@ export default function OrderDetailPage() {
                     <Receipt className="h-4 w-4" />
                     View Invoice
                   </Link>
-                ) : (
+                ) : canGenerateInvoice ? (
                   <button
                     onClick={() => void onGenerateInvoice()}
                     disabled={invoiceBusy}
@@ -383,7 +399,7 @@ export default function OrderDetailPage() {
                     {invoiceBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Receipt className="h-4 w-4" />}
                     Generate Invoice
                   </button>
-                )}
+                ) : null}
               </div>
             </div>
 
@@ -497,6 +513,7 @@ export default function OrderDetailPage() {
                   <Package className="h-5 w-5" />
                   Order Lines ({lines.length})
                 </h2>
+                {canCreateLine && (
                 <button
                   onClick={() => {
                     setEditingLine(null);
@@ -522,6 +539,7 @@ export default function OrderDetailPage() {
                   <Plus className="h-4 w-4" />
                   Add Line
                 </button>
+                )}
               </div>
               {lines.length === 0 ? (
                 <p className="text-muted-foreground text-center py-8">No order lines</p>
@@ -536,6 +554,7 @@ export default function OrderDetailPage() {
                         </p>
                       </div>
                       <div className="flex gap-2">
+                        {canUpdateLine && (
                         <button
                           onClick={() => {
                             setEditingLine(line);
@@ -560,12 +579,15 @@ export default function OrderDetailPage() {
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
+                        )}
+                        {canDeleteLine && (
                         <button
                           onClick={() => setConfirmDel({ type: 'line', id: line.id })}
                           className="p-1 hover:bg-muted rounded text-red-500"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -580,6 +602,7 @@ export default function OrderDetailPage() {
                   <MapPin className="h-5 w-5" />
                   Addresses ({addresses.length})
                 </h2>
+                {canCreateAddress && (
                 <button
                   onClick={() => {
                     setEditingAddress(null);
@@ -604,6 +627,7 @@ export default function OrderDetailPage() {
                   <Plus className="h-4 w-4" />
                   Add Address
                 </button>
+                )}
               </div>
               {addresses.length === 0 ? (
                 <p className="text-muted-foreground text-center py-8">No addresses</p>
@@ -620,6 +644,7 @@ export default function OrderDetailPage() {
                           <p className="text-sm">{addr.countryCode}</p>
                         </div>
                         <div className="flex gap-2">
+                          {canUpdateAddress && (
                           <button
                             onClick={() => {
                               setEditingAddress(addr);
@@ -643,12 +668,15 @@ export default function OrderDetailPage() {
                           >
                             <Pencil className="h-4 w-4" />
                           </button>
+                          )}
+                          {canDeleteAddress && (
                           <button
                             onClick={() => setConfirmDel({ type: 'address', id: addr.id })}
                             className="p-1 hover:bg-muted rounded text-red-500"
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -664,6 +692,7 @@ export default function OrderDetailPage() {
                   <FileText className="h-5 w-5" />
                   Notes ({notes.length})
                 </h2>
+                {canCreateNote && (
                 <button
                   onClick={() => {
                     setEditingNote(null);
@@ -679,6 +708,7 @@ export default function OrderDetailPage() {
                   <Plus className="h-4 w-4" />
                   Add Note
                 </button>
+                )}
               </div>
               {notes.length === 0 ? (
                 <p className="text-muted-foreground text-center py-8">No notes</p>
@@ -698,6 +728,7 @@ export default function OrderDetailPage() {
                           <p className="text-sm whitespace-pre-wrap">{note.note}</p>
                         </div>
                         <div className="flex gap-2">
+                          {canUpdateNote && (
                           <button
                             onClick={() => {
                               setEditingNote(note);
@@ -712,12 +743,15 @@ export default function OrderDetailPage() {
                           >
                             <Pencil className="h-4 w-4" />
                           </button>
+                          )}
+                          {canDeleteNote && (
                           <button
                             onClick={() => setConfirmDel({ type: 'note', id: note.id })}
                             className="p-1 hover:bg-muted rounded text-red-500"
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -832,7 +866,7 @@ export default function OrderDetailPage() {
                     className="select"
                   >
                     <option value="">Select warehouse...</option>
-                    {warehouses.map(w => (
+                    {warehouses.filter(w => w.status === 'active' || w.id === lineForm.warehouseId).map(w => (
                       <option key={w.id} value={w.id}>{w.name}</option>
                     ))}
                   </select>

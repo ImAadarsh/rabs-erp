@@ -81,6 +81,7 @@ export default function UsersPage() {
   const [editBusinessUnits, setEditBusinessUnits] = useState<any[]>([]);
   const [editLocations, setEditLocations] = useState<any[]>([]);
   const [confirmDel, setConfirmDel] = useState<User | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const [resetPassword, setResetPassword] = useState('');
 
   useEffect(() => {
@@ -727,7 +728,7 @@ export default function UsersPage() {
                         onChange={(e) => setResetPassword(e.target.value)}
                         placeholder="Leave blank to keep the current password"
                       />
-                      <p className="text-xs text-muted-foreground mt-1">Admin can set a new password here (min 8 characters). Leave blank to keep the current password.</p>
+                      <p className="text-xs text-muted-foreground mt-1">Super admin / admin can set a new password here (min 8 characters). The user can then sign in with it.</p>
                     </div>
                   </div>
                   <div className="flex justify-end gap-3 pt-4 border-t border-border">

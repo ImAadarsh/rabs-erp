@@ -9,7 +9,7 @@ import { FilterBar, type FilterField } from '@/components/filter-bar';
 import { useSession } from '@/hooks/use-session';
 import {
   listPmTasks, createPmTask, completePmTask, updatePmTask, addPmTaskDependency,
-  listPmProjects, listUsers,
+  listPmProjects, listUserOptions,
 } from '@/lib/api';
 import {
   formatDate, pmApiError, statusBadgeClass, TASK_PRIORITIES, TASK_STATUSES, userLabel,
@@ -85,7 +85,7 @@ export default function PmTasksPage() {
     if (!orgId) return;
     void Promise.all([
       listPmProjects({ organizationId: orgId, limit: 200 }),
-      listUsers(),
+      listUserOptions(),
     ]).then(([p, u]) => {
       setProjects(p.data || []);
       setUsers(u.data || []);

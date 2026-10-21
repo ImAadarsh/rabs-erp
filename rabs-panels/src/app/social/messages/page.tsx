@@ -32,7 +32,7 @@ export default function SocialMessagesPage() {
         platform: filters.platform || undefined,
         accountId: filters.accountId || undefined
       }),
-      listSocialAccounts()
+      listSocialAccounts().catch(() => ({ data: [] }))
     ]);
     setConversations(inbox.data || []);
     setIgLocked(inbox.igLocked || null);

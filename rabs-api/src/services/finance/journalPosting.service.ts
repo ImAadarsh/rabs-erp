@@ -34,16 +34,20 @@ function toDateOnly(d: string | Date): Date {
   return d;
 }
 
+/** YYYY-MM-DD from a DATE value; mysql2 hydrates DATE columns at local midnight, so use local parts. */
+export function ymd(d: string | Date): string {
+  if (typeof d === 'string') return d.slice(0, 10);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export async function findOpenFiscalPeriod(
   organizationId: string,
   entryDate: Date,
   manager?: EntityManager
 ): Promise<FiscalPeriod | null> {
   const repo = (manager ?? AppDataSource).getRepository(FiscalPeriod);
-  const dateStr =
-    entryDate instanceof Date
-      ? entryDate.toISOString().slice(0, 10)
-      : String(entryDate).slice(0, 10);
+  const dateStr = ymd(entryDate);
   return repo
     .createQueryBuilder('fp')
     .where('fp.organization_id = :orgId', { orgId: organizationId })
@@ -175,11 +179,12 @@ export async function postExistingJournal(
     const repo = em.getRepository(JournalEntry);
     const entry = await repo.findOne({
       where: { id: journalId },
-      relations: ['journalLines']
+      relations: ['journalLines', 'fiscalPeriod']
     });
     if (!entry) throw new Error('Journal not found');
     if (entry.status === 'posted') return entry;
     if (entry.status === 'voided') throw new Error('Cannot post a voided journal');
+    if (entry.fiscalPeriod?.isClosed) throw new Error('Cannot post into a closed fiscal period');
 
     const lines = entry.journalLines || [];
     const totalDebit = roundMoney(lines.reduce((s, l) => s + Number(l.debitAmount), 0));

@@ -8,14 +8,16 @@ import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
 import { Pencil, Trash2, Plus, X, Package } from 'lucide-react';
+import { LocationStatusBadge, activeWarehouses } from '@/components/inventory/location-status-badge';
 
 type Bin = {
   id: string;
   code: string;
   name?: string;
-  warehouse?: { id: string; name: string };
+  warehouse?: { id: string; name: string; status?: string };
   zone?: string;
   aisle?: string;
   rack?: string;
@@ -29,6 +31,10 @@ export default function BinsPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER']);
+  const { can } = useApiAccess();
+  const canCreate = can('POST', '/api/inventory/bins');
+  const canUpdate = can('PATCH', '/api/inventory/bins/:id');
+  const canDelete = can('DELETE', '/api/inventory/bins/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<Bin[]>([]);
   const [warehouses, setWarehouses] = useState<any[]>([]);
@@ -139,16 +145,40 @@ export default function BinsPage() {
     {
       accessorKey: 'warehouse',
       header: 'Warehouse',
-      cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.warehouse?.name || 'N/A'}</span>
+      cell: ({ row }) => {
+        const wh = row.original.warehouse;
+        return (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm text-muted-foreground">{wh?.name || 'N/A'}</span>
+            {wh?.status && wh.status !== 'active' && <LocationStatusBadge status={wh.status} title={`Warehouse is ${wh.status}`} />}
+          </div>
+        );
+      }
     },
     { accessorKey: 'zone', header: 'Zone' },
     { accessorKey: 'binType', header: 'Type' },
-    { accessorKey: 'status', header: 'Status' },
+    {
+      accessorKey: 'status',
+      header: 'Status',
+      cell: ({ row }) => {
+        const whStatus = row.original.warehouse?.status;
+        const blocked = whStatus && whStatus !== 'active';
+        return (
+          <div className="flex flex-col gap-0.5">
+            <LocationStatusBadge status={row.original.status} />
+            {blocked && (
+              <span className="text-xs text-amber-700">Unavailable — warehouse {whStatus}</span>
+            )}
+          </div>
+        );
+      }
+    },
     {
       id: 'actions',
       header: 'Actions',
       cell: ({ row }) => (
         <div className="flex gap-2">
+          {canUpdate && (
           <button
             onClick={() => {
               setEditing(row.original);
@@ -168,13 +198,16 @@ export default function BinsPage() {
           >
             <Pencil className="h-4 w-4" />
           </button>
+          )}
+          {canDelete && (
           <button onClick={() => setConfirmDel(row.original)} className="p-1 hover:bg-muted rounded text-red-500">
             <Trash2 className="h-4 w-4" />
           </button>
+          )}
         </div>
       )
     }
-  ], []);
+  ], [canUpdate, canDelete]);
 
   if (!hydrated || loading) {
     return (
@@ -223,6 +256,7 @@ export default function BinsPage() {
                 <h1 className="text-3xl font-bold">Bins</h1>
                 <p className="text-muted-foreground mt-1">Manage warehouse storage bins</p>
               </div>
+              {canCreate && (
               <button
                 onClick={() => setShowCreate(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-brand text-white rounded hover:bg-brand-600"
@@ -230,6 +264,7 @@ export default function BinsPage() {
                 <Plus className="h-4 w-4" />
                 Add Bin
               </button>
+              )}
             </div>
 
             {loading ? (
@@ -263,10 +298,11 @@ export default function BinsPage() {
                           required
                         >
                           <option value="">Select...</option>
-                          {warehouses.map(w => (
+                          {activeWarehouses(warehouses).map(w => (
                             <option key={w.id} value={w.id}>{w.name}</option>
                           ))}
                         </select>
+                        <p className="mt-1 text-xs text-muted-foreground">Only active warehouses are listed.</p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1.5">Code *</label>

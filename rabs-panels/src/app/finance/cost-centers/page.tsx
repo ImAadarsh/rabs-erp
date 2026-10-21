@@ -3,11 +3,12 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
-import { listCostCenters, createCostCenter, updateCostCenter, deleteCostCenter, listOrganizations, listBusinessUnits, listUsers } from '@/lib/api';
+import { listCostCenters, createCostCenter, updateCostCenter, deleteCostCenter, listOrganizations, listBusinessUnits, listUserOptions } from '@/lib/api';
 import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
 import { Pencil, Trash2, Plus, X } from 'lucide-react';
 
@@ -26,6 +27,8 @@ export default function CostCentersPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'FINANCE']);
+  const { can } = useApiAccess();
+  const canDelete = can('DELETE', '/api/finance/cost-centers/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<CostCenter[]>([]);
   const [organizations, setOrganizations] = useState<any[]>([]);
@@ -63,7 +66,7 @@ export default function CostCentersPage() {
         const [itemsRes, orgsRes, usersRes] = await Promise.all([
           listCostCenters({ organizationId: session?.user?.organizationId }),
           listOrganizations(),
-          listUsers()
+          listUserOptions()
         ]);
         setItems(itemsRes.data || []);
         setOrganizations(orgsRes.data || []);
@@ -180,13 +183,13 @@ export default function CostCentersPage() {
           }} className="p-1.5 hover:bg-muted rounded">
             <Pencil size={16} />
           </button>
-          <button onClick={() => setConfirmDel(row.original)} className="p-1.5 hover:bg-muted rounded text-destructive">
+          {canDelete && <button onClick={() => setConfirmDel(row.original)} className="p-1.5 hover:bg-muted rounded text-destructive">
             <Trash2 size={16} />
-          </button>
+          </button>}
         </div>
       )
     }
-  ], []);
+  ], [canDelete]);
 
   if (!hydrated || loading) {
     return (

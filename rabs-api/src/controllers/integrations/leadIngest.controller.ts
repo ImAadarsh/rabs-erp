@@ -1,6 +1,38 @@
 import { Request, Response } from 'express';
 import { upsertInboundLead } from '@services/crm/leadIngest.service.js';
 
+const SF_ACK =
+  '<?xml version="1.0" encoding="UTF-8"?>' +
+  '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body>' +
+  '<notificationsResponse xmlns="http://soap.sforce.com/2005/09/outbound"><Ack>true</Ack></notificationsResponse>' +
+  '</soapenv:Body></soapenv:Envelope>';
+
+function decodeXml(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+/** Extract sObject field maps from a Salesforce Outbound Message SOAP envelope. */
+function parseSalesforceOutboundMessage(xml: string): Record<string, string>[] {
+  const records: Record<string, string>[] = [];
+  const sobjRe = /<(?:\w+:)?sObject\b[^>]*>([\s\S]*?)<\/(?:\w+:)?sObject>/g;
+  let m: RegExpExecArray | null;
+  while ((m = sobjRe.exec(xml))) {
+    const rec: Record<string, string> = {};
+    const fieldRe = /<(?:\w+:)?(\w+)(?:\s[^>]*)?>([^<]*)<\/(?:\w+:)?\1>/g;
+    let f: RegExpExecArray | null;
+    while ((f = fieldRe.exec(m[1]))) {
+      rec[f[1]] = decodeXml(f[2]);
+    }
+    if (Object.keys(rec).length) records.push(rec);
+  }
+  return records;
+}
+
 export class LeadIngestController {
   /**
    * POST /api/integrations/leads
@@ -18,13 +50,24 @@ export class LeadIngestController {
       }
 
       const body = req.body;
-      if (!body || typeof body !== 'object' || Array.isArray(body)) {
-        res.status(400).json({ error: { message: 'JSON object body required' } });
-        return;
+      const isSoap = typeof body === 'string';
+      let records: any[];
+      if (isSoap) {
+        records = parseSalesforceOutboundMessage(body);
+        if (!records.length) {
+          res.status(400).json({ error: { message: 'No sObject records found in XML body' } });
+          return;
+        }
+      } else {
+        if (!body || typeof body !== 'object' || Array.isArray(body) || !Object.keys(body).length) {
+          res.status(400).json({
+            error: { message: 'JSON object body required (send Content-Type: application/json)' }
+          });
+          return;
+        }
+        // Support Salesforce-style batch { records: [...] } or single lead
+        records = Array.isArray(body.records) ? body.records : [body];
       }
-
-      // Support Salesforce-style batch { records: [...] } or single lead
-      const records = Array.isArray(body.records) ? body.records : [body];
       if (!records.length) {
         res.status(400).json({ error: { message: 'No lead records provided' } });
         return;
@@ -52,6 +95,11 @@ export class LeadIngestController {
           source: lead.source,
           marketingSync
         });
+      }
+
+      if (isSoap) {
+        res.status(200).type('text/xml').send(SF_ACK);
+        return;
       }
 
       const status = results.length === 1 && results[0].created ? 201 : 200;

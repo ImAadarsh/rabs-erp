@@ -5,6 +5,7 @@ import { CatalogItem } from '@entities/catalog/CatalogItem.js';
 import { Variant } from '@entities/catalog/Variant.js';
 import { z } from 'zod';
 import { IsNull } from 'typeorm';
+import { zodMessage } from '@services/catalog/zodMessage.js';
 
 const createChannelMappingSchema = z.object({
   catalogItemId: z.string(),
@@ -77,7 +78,7 @@ export class ChannelMappingsController {
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createChannelMappingSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
@@ -150,7 +151,7 @@ export class ChannelMappingsController {
     const parsed = updateChannelMappingSchema.safeParse(req.body);
     
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 

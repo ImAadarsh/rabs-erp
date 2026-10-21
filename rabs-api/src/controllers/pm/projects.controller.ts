@@ -11,6 +11,31 @@ import { assertOrgAccess, orgIdFromReq, userIdFromReq } from '@services/pm/pmSco
 import { computeAndPersistProgress } from '@services/pm/progress.service.js';
 
 const projectStatuses = ['draft', 'active', 'on_hold', 'completed', 'cancelled'] as const;
+type ProjectStatus = (typeof projectStatuses)[number];
+
+/** Cancelled/completed are terminal except an explicit reopen to draft/active. */
+const PROJECT_STATUS_TRANSITIONS: Record<ProjectStatus, ProjectStatus[]> = {
+  draft: ['active', 'on_hold', 'cancelled'],
+  active: ['on_hold', 'completed', 'cancelled'],
+  on_hold: ['active', 'completed', 'cancelled'],
+  completed: ['active'],
+  cancelled: ['draft', 'active']
+};
+
+function assertProjectTransition(from: ProjectStatus, to: ProjectStatus): void {
+  if (from === to) return;
+  if (PROJECT_STATUS_TRANSITIONS[from]?.includes(to)) return;
+  let message = `Cannot change project status from "${from}" to "${to}".`;
+  if (from === 'cancelled') {
+    message = 'This project is cancelled. Reopen it (set status to Draft or Active) before changing it further.';
+  } else if (to === 'completed') {
+    message = 'Only an Active or On hold project can be completed.';
+  } else if (from === 'completed') {
+    message = 'This project is completed. Reopen it (set status to Active) before changing it further.';
+  }
+  throw Object.assign(new Error(message), { status: 409 });
+}
+
 const deliverableStatuses = ['pending', 'in_progress', 'done', 'cancelled'] as const;
 const memberRoles = ['owner', 'manager', 'member', 'viewer'] as const;
 
@@ -132,6 +157,10 @@ export class ProjectsController {
         res.status(400).json({ error: { message: 'organizationId required' } });
         return;
       }
+      if (data.status === 'completed' || data.status === 'cancelled') {
+        res.status(400).json({ error: { message: 'status: a new project must start as Draft, Active or On hold' } });
+        return;
+      }
       const repo = AppDataSource.getRepository(PmProject);
       const ownerUserId = data.ownerUserId ?? userIdFromReq(req) ?? null;
       const item = await repo.save(
@@ -185,6 +214,7 @@ export class ProjectsController {
         return;
       }
       assertOrgAccess(req, item.organizationId);
+      if (data.status !== undefined) assertProjectTransition(item.status, data.status);
 
       Object.assign(item, {
         ...(data.name !== undefined && { name: data.name }),
@@ -261,6 +291,12 @@ export class ProjectsController {
         return;
       }
       assertOrgAccess(req, item.organizationId);
+      if (item.status === 'cancelled') {
+        res.status(409).json({
+          error: { message: 'This project is cancelled. Reopen it before marking it production ready.' }
+        });
+        return;
+      }
       item.productionReady = true;
       if (item.status === 'draft') item.status = 'active';
       const saved = await repo.save(item);
@@ -279,6 +315,7 @@ export class ProjectsController {
         return;
       }
       assertOrgAccess(req, item.organizationId);
+      assertProjectTransition(item.status, 'completed');
       item.status = 'completed';
       item.completedAt = new Date();
       item.progressPct = 100;

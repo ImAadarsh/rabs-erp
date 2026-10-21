@@ -6,6 +6,7 @@ import { Organization } from '@entities/iam/Organization.js';
 import { Supplier } from '@entities/inventory/Supplier.js';
 import { Warehouse } from '@entities/inventory/Warehouse.js';
 import { PurchaseOrder } from '@entities/inventory/PurchaseOrder.js';
+import { inactiveWarehouseError } from '@services/inventory/locationStatus.js';
 
 const createASNSchema = z.object({
   organizationId: z.string(),
@@ -141,6 +142,11 @@ export class ASNController {
       const warehouse = await warehouseRepo.findOne({ where: { id: parsed.data.warehouseId } });
       if (!warehouse) {
         res.status(400).json({ error: { message: 'Invalid warehouseId' } });
+        return;
+      }
+      const warehouseError = inactiveWarehouseError(warehouse);
+      if (warehouseError) {
+        res.status(400).json({ error: { message: warehouseError } });
         return;
       }
 

@@ -44,6 +44,7 @@ import {
   Trash2,
   Zap
 } from 'lucide-react';
+import { activeWarehouses } from '@/components/inventory/location-status-badge';
 
 type ImportSource = {
   id: string;
@@ -403,15 +404,21 @@ export default function ImportChannelsPage() {
           })
         : await executeProductImport(file!, sourceType, payload);
       setLastResult(res.data.summary as ImportSummary);
-      toast.success('Import completed successfully');
+      if (res.data.status === 'failed') {
+        toast.error(res.data.warning || 'Import failed — nothing was imported');
+      } else if (res.data.warning) {
+        toast.warning(res.data.warning);
+      } else {
+        toast.success('Import completed successfully');
+      }
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error?.message || 'Import failed');
+    } finally {
       const jobsRes = await listProductImportJobs({
         organizationId: options.organizationId,
         limit: 10
       }).catch(() => null);
       if (jobsRes?.data) setJobs(jobsRes.data);
-    } catch (e: any) {
-      toast.error(e?.response?.data?.error?.message || 'Import failed');
-    } finally {
       setImporting(false);
       setImportProgress('');
     }
@@ -897,7 +904,7 @@ export default function ImportChannelsPage() {
                   <option value="">
                     {options.importInventory ? 'Select warehouse…' : 'Enable inventory import first'}
                   </option>
-                  {warehouses.map((w) => (
+                  {activeWarehouses(warehouses).map((w) => (
                     <option key={w.id} value={w.id}>{w.name} ({w.code})</option>
                   ))}
                 </select>
@@ -1050,25 +1057,38 @@ export default function ImportChannelsPage() {
               <p className="text-sm text-muted-foreground">No imports yet — your history will appear here.</p>
             ) : (
               <ul className="divide-y divide-border rounded-lg border border-border overflow-hidden">
-                {jobs.map((j) => (
-                  <li key={j.id} className="flex justify-between items-center px-4 py-3 text-sm bg-background/30">
-                    <span>
-                      <span className="font-medium">{j.fileName || j.sourceType}</span>
-                      <span className="text-muted-foreground"> · {j.channel}</span>
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
-                        j.status === 'completed'
-                          ? 'bg-green-500/15 text-green-600'
-                          : j.status === 'failed'
+                {jobs.map((j) => {
+                  const s = j.summary || {};
+                  const nothingImported =
+                    j.status === 'completed' &&
+                    Number(s.productsCreated || 0) + Number(s.productsUpdated || 0) +
+                      Number(s.variantsCreated || 0) + Number(s.variantsUpdated || 0) === 0;
+                  return (
+                    <li key={j.id} className="flex justify-between items-center gap-3 px-4 py-3 text-sm bg-background/30">
+                      <span className="min-w-0">
+                        <span className="font-medium">{j.fileName || j.sourceType}</span>
+                        <span className="text-muted-foreground"> · {j.channel}</span>
+                        {j.summary?.productCount !== undefined && (
+                          <span className="text-muted-foreground"> · {Number(j.summary.productCount)} product(s)</span>
+                        )}
+                        {j.errorMessage && (
+                          <span className="block text-xs text-amber-600 mt-0.5">{j.errorMessage}</span>
+                        )}
+                      </span>
+                      <span
+                        className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
+                          j.status === 'failed'
                             ? 'bg-red-500/15 text-red-600'
-                            : 'bg-amber-500/15 text-amber-600'
-                      }`}
-                    >
-                      {j.status}
-                    </span>
-                  </li>
-                ))}
+                            : j.status === 'completed' && !nothingImported
+                              ? 'bg-green-500/15 text-green-600'
+                              : 'bg-amber-500/15 text-amber-600'
+                        }`}
+                      >
+                        {nothingImported ? 'nothing imported' : j.status}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>

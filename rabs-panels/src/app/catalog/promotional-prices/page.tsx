@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
 import { Pencil, Trash2, Plus, X, Tag } from 'lucide-react';
 
@@ -33,10 +34,30 @@ type PromotionalPrice = {
   [key: string]: any;
 };
 
+function toLocalInput(value?: string | null) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function promoFormError(f: { discountType: string; discountValue: string; validFrom: string; validUntil: string }): string | null {
+  const value = parseFloat(f.discountValue);
+  if (!Number.isFinite(value) || value < 0) return 'Discount value cannot be negative';
+  if (f.discountType === 'percentage' && value > 100) return 'Percentage discount must be between 0 and 100';
+  if (new Date(f.validUntil).getTime() <= new Date(f.validFrom).getTime()) return 'Valid Until must be after Valid From';
+  return null;
+}
+
 export default function PromotionalPricesPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'FINANCE']);
+  const { can } = useApiAccess();
+  const canCreate = can('POST', '/api/catalog/promotional-prices');
+  const canUpdate = can('PATCH', '/api/catalog/promotional-prices/:id');
+  const canDelete = can('DELETE', '/api/catalog/promotional-prices/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<PromotionalPrice[]>([]);
   const [variants, setVariants] = useState<any[]>([]);
@@ -103,6 +124,11 @@ export default function PromotionalPricesPage() {
       toast.error('Please fill in required fields');
       return;
     }
+    const formError = promoFormError(form);
+    if (formError) {
+      toast.error(formError);
+      return;
+    }
     try {
       const res = await createPromotionalPrice({
         variantId: form.variantId,
@@ -136,6 +162,11 @@ export default function PromotionalPricesPage() {
   async function onUpdate(e: React.FormEvent) {
     e.preventDefault();
     if (!editing) return;
+    const formError = promoFormError(editForm);
+    if (formError) {
+      toast.error(formError);
+      return;
+    }
     try {
       const res = await updatePromotionalPrice(editing.id, {
         priceListId: editForm.priceListId || null,
@@ -226,6 +257,7 @@ export default function PromotionalPricesPage() {
         const item = row.original;
         return (
           <div className="flex items-center gap-2">
+            {canUpdate && (
             <button
               onClick={() => {
                 setEditing(item);
@@ -244,6 +276,8 @@ export default function PromotionalPricesPage() {
             >
               <Pencil className="h-4 w-4" />
             </button>
+            )}
+            {canDelete && (
             <button
               onClick={() => setConfirmDel(item)}
               className="p-1 hover:bg-gray-100 rounded text-red-600"
@@ -251,11 +285,12 @@ export default function PromotionalPricesPage() {
             >
               <Trash2 className="h-4 w-4" />
             </button>
+            )}
           </div>
         );
       },
     },
-  ], []);
+  ], [canUpdate, canDelete]);
 
   if (!hydrated || loading) {
     return (
@@ -307,6 +342,7 @@ export default function PromotionalPricesPage() {
                 </h1>
                 <p className="text-muted-foreground mt-1">Manage time-bound discounts and promotions</p>
               </div>
+              {canCreate && (
               <button
                 onClick={() => setShowCreate(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-brand text-white rounded hover:bg-brand-600"
@@ -314,6 +350,7 @@ export default function PromotionalPricesPage() {
                 <Plus className="h-4 w-4" />
                 Add Promotion
               </button>
+              )}
             </div>
 
             <RichDataTable columns={columns} data={items} />
@@ -384,6 +421,7 @@ export default function PromotionalPricesPage() {
                           type="number"
                           step="0.01"
                           min="0"
+                          max={form.discountType === 'percentage' ? 100 : undefined}
                           value={form.discountValue}
                           onChange={e => setForm(prev => ({ ...prev, discountValue: e.target.value }))}
                           className="input"
@@ -404,6 +442,7 @@ export default function PromotionalPricesPage() {
                         <label className="block text-sm font-medium mb-1.5">Valid Until *</label>
                         <input
                           type="datetime-local"
+                          min={form.validFrom || undefined}
                           value={form.validUntil}
                           onChange={e => setForm(prev => ({ ...prev, validUntil: e.target.value }))}
                           className="input"
@@ -496,6 +535,7 @@ export default function PromotionalPricesPage() {
                           type="number"
                           step="0.01"
                           min="0"
+                          max={editForm.discountType === 'percentage' ? 100 : undefined}
                           value={editForm.discountValue}
                           onChange={e => setEditForm(prev => ({ ...prev, discountValue: e.target.value }))}
                           className="input"
@@ -516,6 +556,7 @@ export default function PromotionalPricesPage() {
                         <label className="block text-sm font-medium mb-1.5">Valid Until *</label>
                         <input
                           type="datetime-local"
+                          min={editForm.validFrom || undefined}
                           value={editForm.validUntil}
                           onChange={e => setEditForm(prev => ({ ...prev, validUntil: e.target.value }))}
                           className="input"

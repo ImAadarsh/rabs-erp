@@ -7,6 +7,7 @@ import { Header } from '@/components/header';
 import { RichDataTable } from '@/components/rich-data-table';
 import { FilterBar, type FilterField } from '@/components/filter-bar';
 import { useSession } from '@/hooks/use-session';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { listCrmAccounts, createCustomer } from '@/lib/api';
 import { crmApiError, displayName } from '@/lib/crm-utils';
 import { toast } from 'sonner';
@@ -17,6 +18,8 @@ import { CrmModal, CrmField, CrmModalActions, crmInputClass } from '@/components
 export default function CrmAccountsPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
+  const { can } = useApiAccess();
+  const canCreate = can('POST', '/api/orders/customers');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<any[]>([]);
   const [search, setSearch] = useState('');
@@ -167,7 +170,7 @@ export default function CrmAccountsPage() {
           title="CRM Accounts"
           actions={[
             { label: 'Open in Orders', onClick: () => router.push('/orders/customers'), icon: <ExternalLink size={16} />, variant: 'secondary' },
-            { label: 'New Account', onClick: () => setShowCreate(true), icon: <Plus size={18} /> },
+            ...(canCreate ? [{ label: 'New Account', onClick: () => setShowCreate(true), icon: <Plus size={18} /> }] : []),
           ]}
         />
         <main className="p-6 md:p-8 space-y-5">
@@ -206,6 +209,7 @@ export default function CrmAccountsPage() {
               <p className="font-medium text-foreground">No accounts yet</p>
               <p className="text-sm mt-1">CRM accounts are ERP customers. Create one here or open Orders.</p>
               <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                {canCreate && (
                 <button
                   type="button"
                   onClick={() => setShowCreate(true)}
@@ -213,6 +217,7 @@ export default function CrmAccountsPage() {
                 >
                   <Plus size={16} /> New Account
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={() => router.push('/orders/customers')}

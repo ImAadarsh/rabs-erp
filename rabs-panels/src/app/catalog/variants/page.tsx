@@ -5,14 +5,16 @@ import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
 import { 
   listVariants, createVariant, updateVariant, deleteVariant,
-  listCatalogItems
+  listCatalogItems, listProductMedia, createProductMedia, deleteProductMedia
 } from '@/lib/api';
 import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
-import { MoreHorizontal, Pencil, Trash2, Plus, X, Tag } from 'lucide-react';
+import { Pencil, Trash2, Plus, X, Tag, Loader2 } from 'lucide-react';
+import { MediaThumb } from '@/components/catalog/media-preview';
 
 type Variant = {
   id: string;
@@ -26,6 +28,7 @@ type Variant = {
   option3Value?: string | null;
   costPrice?: number | null;
   costCurrency: string;
+  imageUrl?: string | null;
   status: 'active' | 'inactive' | 'discontinued';
   catalogItem?: {
     id: string;
@@ -35,47 +38,227 @@ type Variant = {
   [key: string]: any;
 };
 
+type OptionRow = { name: string; values: string };
+
+/** The variants table stores options in option1..option3 columns (also the Shopify/WooCommerce limit). */
+const MAX_OPTIONS = 3;
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
+
+const emptyCreateForm = {
+  catalogItemId: '',
+  variantSku: '',
+  name: '',
+  weightValue: '',
+  weightUnit: 'kg' as 'g' | 'kg' | 'lb' | 'oz',
+  lengthValue: '',
+  widthValue: '',
+  heightValue: '',
+  dimensionUnit: 'cm' as 'cm' | 'm' | 'in' | 'ft',
+  costPrice: '',
+  costCurrency: 'GBP',
+  position: '0',
+  status: 'active' as 'active' | 'inactive' | 'discontinued'
+};
+
+function splitValues(raw: string) {
+  return Array.from(new Set(raw.split(',').map((v) => v.trim()).filter(Boolean)));
+}
+
+/** Every combination of option values, e.g. Size[S,M] x Colour[Red] -> [[S,Red],[M,Red]]. */
+function cartesian(options: { name: string; values: string[] }[]): string[][] {
+  return options.reduce<string[][]>(
+    (acc, opt) => acc.flatMap((combo) => opt.values.map((v) => [...combo, v])),
+    [[]]
+  );
+}
+
+function skuPart(value: string) {
+  return value.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+function optionsToPayload(rows: OptionRow[], values: string[]) {
+  const payload: Record<string, string> = {};
+  for (let i = 0; i < MAX_OPTIONS; i++) {
+    payload[`option${i + 1}Name`] = rows[i]?.name.trim() ?? '';
+    payload[`option${i + 1}Value`] = values[i] ?? '';
+  }
+  return payload as {
+    option1Name: string; option1Value: string;
+    option2Name: string; option2Value: string;
+    option3Name: string; option3Value: string;
+  };
+}
+
+function optionRowsFromVariant(v: Variant): OptionRow[] {
+  const rows: OptionRow[] = [];
+  for (let i = 1; i <= MAX_OPTIONS; i++) {
+    const name = (v[`option${i}Name`] as string | null) ?? '';
+    const value = (v[`option${i}Value`] as string | null) ?? '';
+    if (name || value) rows.push({ name, values: value });
+  }
+  return rows.length ? rows : [{ name: '', values: '' }];
+}
+
+function pickImages(e: React.ChangeEvent<HTMLInputElement>): File[] {
+  const files = Array.from(e.target.files ?? []);
+  e.target.value = '';
+  return files.filter((file) => {
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      toast.error(`${file.name}: please upload an image (JPEG, PNG, WebP, GIF, or SVG)`);
+      return false;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error(`${file.name}: file size must be less than 5MB`);
+      return false;
+    }
+    return true;
+  });
+}
+
+function OptionRowsEditor({
+  rows,
+  onChange,
+  multiValue
+}: {
+  rows: OptionRow[];
+  onChange: (rows: OptionRow[]) => void;
+  multiValue: boolean;
+}) {
+  const update = (i: number, patch: Partial<OptionRow>) =>
+    onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="block text-sm font-medium">Options</label>
+        <button
+          type="button"
+          className="btn btn-outline text-xs inline-flex items-center gap-1"
+          disabled={rows.length >= MAX_OPTIONS}
+          onClick={() => onChange([...rows, { name: '', values: '' }])}
+          title={rows.length >= MAX_OPTIONS ? `Up to ${MAX_OPTIONS} option types per variant` : undefined}
+        >
+          <Plus className="h-3 w-3" /> Add option
+        </button>
+      </div>
+      {rows.map((row, i) => (
+        <div key={i} className="grid grid-cols-[1fr_2fr_auto] gap-2 items-center">
+          <input
+            type="text"
+            value={row.name}
+            onChange={(e) => update(i, { name: e.target.value })}
+            className="input"
+            placeholder={i === 0 ? 'e.g., Size' : i === 1 ? 'e.g., Colour' : 'e.g., Material'}
+          />
+          <input
+            type="text"
+            value={row.values}
+            onChange={(e) => update(i, { values: e.target.value })}
+            className="input"
+            placeholder={multiValue ? 'Comma-separated, e.g., Small, Medium, Large' : 'e.g., Large'}
+          />
+          <button
+            type="button"
+            onClick={() => onChange(rows.length > 1 ? rows.filter((_, idx) => idx !== i) : [{ name: '', values: '' }])}
+            className="p-1 hover:bg-muted rounded text-red-600"
+            title="Remove option"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ))}
+      <p className="text-xs text-muted-foreground">
+        {multiValue
+          ? `Enter several values separated by commas to generate one variant per combination (up to ${MAX_OPTIONS} option types).`
+          : `Up to ${MAX_OPTIONS} option types per variant.`}
+      </p>
+    </div>
+  );
+}
+
+function ImagePicker({
+  files,
+  onChange,
+  existing,
+  onRemoveExisting
+}: {
+  files: File[];
+  onChange: (files: File[]) => void;
+  existing?: { id: string; url: string }[];
+  onRemoveExisting?: (id: string) => void;
+}) {
+  const previews = useMemo(() => files.map((f) => URL.createObjectURL(f)), [files]);
+  useEffect(() => () => previews.forEach((p) => URL.revokeObjectURL(p)), [previews]);
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1.5">
+        Variant Images <span className="text-xs font-normal text-muted-foreground">(select one or more; the first becomes the main image)</span>
+      </label>
+      <input
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={(e) => onChange([...files, ...pickImages(e)])}
+        className="input"
+      />
+      {((existing?.length ?? 0) > 0 || files.length > 0) && (
+        <div className="mt-2 grid grid-cols-5 gap-2">
+          {existing?.map((m) => (
+            <div key={m.id} className="relative">
+              <MediaThumb url={m.url} className="w-full aspect-square" />
+              {onRemoveExisting && (
+                <button
+                  type="button"
+                  onClick={() => onRemoveExisting(m.id)}
+                  className="absolute top-1 right-1 rounded bg-black/70 text-white p-0.5 hover:bg-red-600"
+                  title="Remove image"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          ))}
+          {previews.map((src, i) => (
+            <div key={src} className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={src} alt={`New image ${i + 1}`} className="w-full aspect-square object-cover rounded border" />
+              <button
+                type="button"
+                onClick={() => onChange(files.filter((_, idx) => idx !== i))}
+                className="absolute top-1 right-1 rounded bg-black/70 text-white p-0.5 hover:bg-red-600"
+                title="Remove"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function VariantsPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'SALES_REP']);
+  const { can } = useApiAccess();
+  const canCreate = can('POST', '/api/catalog/variants');
+  const canUpdate = can('PATCH', '/api/catalog/variants/:id');
+  const canDelete = can('DELETE', '/api/catalog/variants/:id');
+  const canAddMedia = can('POST', '/api/catalog/media');
+  const canDeleteMedia = can('DELETE', '/api/catalog/media/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<Variant[]>([]);
   const [catalogItems, setCatalogItems] = useState<any[]>([]);
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ 
-    catalogItemId: '',
-    variantSku: '',
-    name: '',
-    option1Name: '',
-    option1Value: '',
-    option2Name: '',
-    option2Value: '',
-    option3Name: '',
-    option3Value: '',
-    weightValue: '',
-    weightUnit: 'kg' as 'g' | 'kg' | 'lb' | 'oz',
-    lengthValue: '',
-    widthValue: '',
-    heightValue: '',
-    dimensionUnit: 'cm' as 'cm' | 'm' | 'in' | 'ft',
-    costPrice: '',
-    costCurrency: 'GBP',
-    position: '0',
-    status: 'active' as 'active' | 'inactive' | 'discontinued'
-  });
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(emptyCreateForm);
+  const [optionRows, setOptionRows] = useState<OptionRow[]>([{ name: '', values: '' }]);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [editing, setEditing] = useState<Variant | null>(null);
   const [editForm, setEditForm] = useState({
     variantSku: '',
     name: '',
-    option1Name: '',
-    option1Value: '',
-    option2Name: '',
-    option2Value: '',
-    option3Name: '',
-    option3Value: '',
     weightValue: '',
     weightUnit: 'kg' as 'g' | 'kg' | 'lb' | 'oz',
     lengthValue: '',
@@ -87,8 +270,9 @@ export default function VariantsPage() {
     position: '0',
     status: 'active' as 'active' | 'inactive' | 'discontinued'
   });
-  const [editImageFile, setEditImageFile] = useState<File | null>(null);
-  const [editImagePreview, setEditImagePreview] = useState<string | null>(null);
+  const [editOptionRows, setEditOptionRows] = useState<OptionRow[]>([{ name: '', values: '' }]);
+  const [editImageFiles, setEditImageFiles] = useState<File[]>([]);
+  const [editGallery, setEditGallery] = useState<{ id: string; url: string }[]>([]);
   const [confirmDel, setConfirmDel] = useState<Variant | null>(null);
 
   useEffect(() => {
@@ -121,79 +305,158 @@ export default function VariantsPage() {
     })();
   }, [hydrated, hasAccess, router, session?.accessToken, session?.user?.organizationId]);
 
+  const parsedOptions = useMemo(
+    () => optionRows.map((r) => ({ name: r.name.trim(), values: splitValues(r.values) })).filter((o) => o.values.length > 0),
+    [optionRows]
+  );
+
+  const plannedVariants = useMemo(() => {
+    const combos = cartesian(parsedOptions);
+    const base = form.variantSku.trim();
+    return combos.map((values) => ({
+      values,
+      sku: combos.length > 1 && values.length ? [base, ...values.map(skuPart)].filter(Boolean).join('-') : base,
+      name:
+        combos.length > 1 && values.length
+          ? [form.name.trim(), values.join(' / ')].filter(Boolean).join(' - ')
+          : form.name.trim()
+    }));
+  }, [parsedOptions, form.variantSku, form.name]);
+
+  function openCreate() {
+    setForm(emptyCreateForm);
+    setOptionRows([{ name: '', values: '' }]);
+    setImageFiles([]);
+    setShowCreate(true);
+  }
+
+  async function uploadGallery(variant: Variant, catalogItemId: string, files: File[], startPosition: number) {
+    let failed = 0;
+    for (const [i, file] of files.entries()) {
+      try {
+        await createProductMedia({ catalogItemId, variantId: variant.id, type: 'image', position: startPosition + i }, file);
+      } catch {
+        failed += 1;
+      }
+    }
+    return failed;
+  }
+
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!form.catalogItemId || !form.variantSku) {
       toast.error('Please fill in required fields (Catalog Item, Variant SKU)');
       return;
     }
+    if (parsedOptions.some((o) => !o.name)) {
+      toast.error('Every option with values needs a name (e.g., Size)');
+      return;
+    }
+    const rowsForPayload = optionRows.filter((r) => splitValues(r.values).length > 0);
+    const [mainImage, ...extraImages] = imageFiles;
+    setSaving(true);
+    const created: Variant[] = [];
+    const errors: string[] = [];
+    let galleryFailures = 0;
+    for (const [idx, plan] of plannedVariants.entries()) {
+      try {
+        const res = await createVariant({
+          catalogItemId: form.catalogItemId,
+          variantSku: plan.sku,
+          name: plan.name || undefined,
+          ...optionsToPayload(rowsForPayload, plan.values),
+          weightValue: form.weightValue ? parseFloat(form.weightValue) : undefined,
+          weightUnit: form.weightUnit,
+          lengthValue: form.lengthValue ? parseFloat(form.lengthValue) : undefined,
+          widthValue: form.widthValue ? parseFloat(form.widthValue) : undefined,
+          heightValue: form.heightValue ? parseFloat(form.heightValue) : undefined,
+          dimensionUnit: form.dimensionUnit,
+          costPrice: form.costPrice ? parseFloat(form.costPrice) : undefined,
+          costCurrency: form.costCurrency,
+          position: (parseInt(form.position) || 0) + idx,
+          status: form.status
+        }, mainImage);
+        created.push(res.data);
+        if (extraImages.length) {
+          galleryFailures += await uploadGallery(res.data, form.catalogItemId, extraImages, 1);
+        }
+      } catch (err: any) {
+        errors.push(`${plan.sku}: ${err?.response?.data?.error?.message ?? 'create failed'}`);
+      }
+    }
+    setSaving(false);
+    if (created.length) {
+      setItems(prev => [...created, ...prev]);
+      toast.success(created.length === 1 ? 'Variant created' : `${created.length} variants created`);
+    }
+    if (galleryFailures) toast.error(`${galleryFailures} additional image(s) failed to upload`);
+    if (errors.length) {
+      toast.error(errors.join('\n'));
+      return;
+    }
+    setShowCreate(false);
+    setForm(emptyCreateForm);
+    setOptionRows([{ name: '', values: '' }]);
+    setImageFiles([]);
+  }
+
+  async function openEdit(item: Variant) {
+    setEditing(item);
+    setEditForm({
+      variantSku: item.variantSku,
+      name: item.name || '',
+      weightValue: item.weightValue != null ? String(Number(item.weightValue)) : '',
+      weightUnit: item.weightUnit || 'kg',
+      lengthValue: item.lengthValue != null ? String(Number(item.lengthValue)) : '',
+      widthValue: item.widthValue != null ? String(Number(item.widthValue)) : '',
+      heightValue: item.heightValue != null ? String(Number(item.heightValue)) : '',
+      dimensionUnit: item.dimensionUnit || 'cm',
+      costPrice: item.costPrice != null ? String(Number(item.costPrice)) : '',
+      costCurrency: item.costCurrency || 'GBP',
+      position: item.position?.toString() || '0',
+      status: item.status
+    });
+    setEditOptionRows(optionRowsFromVariant(item));
+    setEditImageFiles([]);
+    setEditGallery([]);
     try {
-      const res = await createVariant({
-        catalogItemId: form.catalogItemId,
-        variantSku: form.variantSku,
-        name: form.name || undefined,
-        option1Name: form.option1Name || undefined,
-        option1Value: form.option1Value || undefined,
-        option2Name: form.option2Name || undefined,
-        option2Value: form.option2Value || undefined,
-        option3Name: form.option3Name || undefined,
-        option3Value: form.option3Value || undefined,
-        weightValue: form.weightValue ? parseFloat(form.weightValue) : undefined,
-        weightUnit: form.weightUnit,
-        lengthValue: form.lengthValue ? parseFloat(form.lengthValue) : undefined,
-        widthValue: form.widthValue ? parseFloat(form.widthValue) : undefined,
-        heightValue: form.heightValue ? parseFloat(form.heightValue) : undefined,
-        dimensionUnit: form.dimensionUnit,
-        costPrice: form.costPrice ? parseFloat(form.costPrice) : undefined,
-        costCurrency: form.costCurrency,
-        position: parseInt(form.position) || 0,
-        status: form.status
-      }, imageFile || undefined);
-      
-      setItems([res.data, ...items]);
-      setShowCreate(false);
-      setForm({ 
-        catalogItemId: '',
-        variantSku: '',
-        name: '',
-        option1Name: '',
-        option1Value: '',
-        option2Name: '',
-        option2Value: '',
-        option3Name: '',
-        option3Value: '',
-        weightValue: '',
-        weightUnit: 'kg',
-        lengthValue: '',
-        widthValue: '',
-        heightValue: '',
-        dimensionUnit: 'cm',
-        costPrice: '',
-        costCurrency: 'GBP',
-        position: '0',
-        status: 'active'
-      });
-      setImageFile(null);
-      setImagePreview(null);
-      toast.success('Variant created');
+      const res = await listProductMedia({ variantId: item.id, type: 'image' });
+      setEditGallery((res.data || []).map((m: any) => ({ id: m.id, url: m.url })));
+    } catch {
+      setEditGallery([]);
+    }
+  }
+
+  function closeEdit() {
+    setEditing(null);
+    setEditImageFiles([]);
+    setEditGallery([]);
+  }
+
+  async function onRemoveGalleryImage(id: string) {
+    try {
+      await deleteProductMedia(id);
+      setEditGallery(prev => prev.filter(m => m.id !== id));
     } catch (e: any) {
-      toast.error(e?.response?.data?.error?.message ?? 'Create failed');
+      toast.error(e?.response?.data?.error?.message ?? 'Failed to remove image');
     }
   }
 
   async function onUpdate(e: React.FormEvent) {
     e.preventDefault();
     if (!editing) return;
+    const rows = editOptionRows.filter((r) => r.name.trim() || r.values.trim());
+    if (rows.some((r) => r.values.trim() && !r.name.trim())) {
+      toast.error('Every option with a value needs a name');
+      return;
+    }
+    const [mainImage, ...extraImages] = editImageFiles;
+    setSaving(true);
     try {
       const res = await updateVariant(editing.id, {
         variantSku: editForm.variantSku,
-        name: editForm.name || undefined,
-        option1Name: editForm.option1Name || undefined,
-        option1Value: editForm.option1Value || undefined,
-        option2Name: editForm.option2Name || undefined,
-        option2Value: editForm.option2Value || undefined,
-        option3Name: editForm.option3Name || undefined,
-        option3Value: editForm.option3Value || undefined,
+        name: editForm.name,
+        ...optionsToPayload(rows, rows.map((r) => r.values.trim())),
         weightValue: editForm.weightValue ? parseFloat(editForm.weightValue) : undefined,
         weightUnit: editForm.weightUnit,
         lengthValue: editForm.lengthValue ? parseFloat(editForm.lengthValue) : undefined,
@@ -204,45 +467,20 @@ export default function VariantsPage() {
         costCurrency: editForm.costCurrency,
         position: parseInt(editForm.position) || 0,
         status: editForm.status
-      }, editImageFile || undefined);
-      
+      }, mainImage);
+      const catalogItemId = editing.catalogItem?.id ?? res.data?.catalogItem?.id;
+      let galleryFailures = 0;
+      if (extraImages.length && catalogItemId) {
+        galleryFailures = await uploadGallery(res.data, catalogItemId, extraImages, editGallery.length + 1);
+      }
       setItems(items.map(item => item.id === editing.id ? res.data : item));
-      setEditing(null);
-      setEditImageFile(null);
-      setEditImagePreview(null);
+      closeEdit();
       toast.success('Variant updated');
+      if (galleryFailures) toast.error(`${galleryFailures} additional image(s) failed to upload`);
     } catch (e: any) {
       toast.error(e?.response?.data?.error?.message ?? 'Update failed');
-    }
-  }
-
-  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean = false) {
-    const file = e.target.files?.[0];
-    if (file) {
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
-      if (!allowedTypes.includes(file.type)) {
-        toast.error('Invalid file type. Please upload an image (JPEG, PNG, WebP, GIF, or SVG)');
-        return;
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error('File size must be less than 5MB');
-        return;
-      }
-      if (isEdit) {
-        setEditImageFile(file);
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setEditImagePreview(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-      } else {
-        setImageFile(file);
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setImagePreview(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-      }
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -259,6 +497,11 @@ export default function VariantsPage() {
   }
 
   const columns = useMemo<ColumnDef<Variant>[]>(() => [
+    {
+      id: 'image',
+      header: 'Image',
+      cell: ({ row }) => <MediaThumb url={row.original.imageUrl} className="w-10 h-10" />
+    },
     {
       accessorKey: 'variantSku',
       header: 'Variant SKU',
@@ -326,47 +569,73 @@ export default function VariantsPage() {
         const item = row.original;
         return (
           <div className="flex items-center gap-2">
+            {canUpdate && (
             <button
-              onClick={() => {
-                setEditing(item);
-                setEditForm({
-                  variantSku: item.variantSku,
-                  name: item.name || '',
-                  option1Name: item.option1Name || '',
-                  option1Value: item.option1Value || '',
-                  option2Name: item.option2Name || '',
-                  option2Value: item.option2Value || '',
-                  option3Name: item.option3Name || '',
-                  option3Value: item.option3Value || '',
-                  weightValue: item.weightValue?.toString() || '',
-                  weightUnit: item.weightUnit || 'kg',
-                  lengthValue: item.lengthValue?.toString() || '',
-                  widthValue: item.widthValue?.toString() || '',
-                  heightValue: item.heightValue?.toString() || '',
-                  dimensionUnit: item.dimensionUnit || 'cm',
-                  costPrice: item.costPrice?.toString() || '',
-                  costCurrency: item.costCurrency,
-                  position: item.position?.toString() || '0',
-                  status: item.status
-                });
-                setEditImagePreview(item.imageUrl || null);
-                setEditImageFile(null);
-              }}
+              onClick={() => openEdit(item)}
               className="p-1 hover:bg-gray-100 rounded"
             >
               <Pencil className="h-4 w-4" />
             </button>
+            )}
+            {canDelete && (
             <button
               onClick={() => setConfirmDel(item)}
               className="p-1 hover:bg-gray-100 rounded text-red-600"
             >
               <Trash2 className="h-4 w-4" />
             </button>
+            )}
           </div>
         );
       }
     }
-  ], []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [canUpdate, canDelete]);
+
+  const physicalFields = (
+    f: typeof editForm | typeof form,
+    set: (patch: Partial<typeof emptyCreateForm>) => void
+  ) => (
+    <div className="border-t border-border pt-4 mt-4">
+      <h4 className="text-sm font-semibold mb-3">Physical Properties</h4>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Weight Value</label>
+          <input type="number" step="0.0001" value={f.weightValue} onChange={e => set({ weightValue: e.target.value })} className="select" placeholder="0.0000" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Weight Unit</label>
+          <select value={f.weightUnit} onChange={e => set({ weightUnit: e.target.value as any })} className="select">
+            <option value="g">g</option>
+            <option value="kg">kg</option>
+            <option value="lb">lb</option>
+            <option value="oz">oz</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Length</label>
+          <input type="number" step="0.01" value={f.lengthValue} onChange={e => set({ lengthValue: e.target.value })} className="select" placeholder="0.00" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Width</label>
+          <input type="number" step="0.01" value={f.widthValue} onChange={e => set({ widthValue: e.target.value })} className="select" placeholder="0.00" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Height</label>
+          <input type="number" step="0.01" value={f.heightValue} onChange={e => set({ heightValue: e.target.value })} className="select" placeholder="0.00" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Dimension Unit</label>
+          <select value={f.dimensionUnit} onChange={e => set({ dimensionUnit: e.target.value as any })} className="select">
+            <option value="cm">cm</option>
+            <option value="m">m</option>
+            <option value="in">in</option>
+            <option value="ft">ft</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  );
 
   if (!hydrated || loading) {
     return (
@@ -418,13 +687,15 @@ export default function VariantsPage() {
                 </h1>
                 <p className="text-muted-foreground mt-1">Manage product variants</p>
               </div>
+              {canCreate && (
               <button
-                onClick={() => setShowCreate(true)}
+                onClick={openCreate}
                 className="flex items-center gap-2 px-4 py-2 bg-brand text-white rounded hover:bg-brand-600"
               >
                 <Plus className="h-4 w-4" />
                 Add Variant
               </button>
+              )}
             </div>
 
             <RichDataTable columns={columns} data={items} />
@@ -485,45 +756,18 @@ export default function VariantsPage() {
                           <option value="discontinued">Discontinued</option>
                         </select>
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1.5">Option 1 Name</label>
-                        <input
-                          type="text"
-                          value={form.option1Name}
-                          onChange={e => setForm(prev => ({ ...prev, option1Name: e.target.value }))}
-                          className="select"
-                          placeholder="e.g., Size"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1.5">Option 1 Value</label>
-                        <input
-                          type="text"
-                          value={form.option1Value}
-                          onChange={e => setForm(prev => ({ ...prev, option1Value: e.target.value }))}
-                          className="select"
-                          placeholder="e.g., Large"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1.5">Option 2 Name</label>
-                        <input
-                          type="text"
-                          value={form.option2Name}
-                          onChange={e => setForm(prev => ({ ...prev, option2Name: e.target.value }))}
-                          className="select"
-                          placeholder="e.g., Color"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1.5">Option 2 Value</label>
-                        <input
-                          type="text"
-                          value={form.option2Value}
-                          onChange={e => setForm(prev => ({ ...prev, option2Value: e.target.value }))}
-                          className="select"
-                          placeholder="e.g., Red"
-                        />
+                      <div className="col-span-2">
+                        <OptionRowsEditor rows={optionRows} onChange={setOptionRows} multiValue />
+                        {plannedVariants.length > 1 && (
+                          <div className="mt-2 rounded-lg border border-border bg-muted/30 p-2 text-xs">
+                            <div className="font-medium mb-1">{plannedVariants.length} variants will be created:</div>
+                            <ul className="max-h-28 overflow-y-auto font-mono space-y-0.5">
+                              {plannedVariants.map(p => (
+                                <li key={p.sku}>{p.sku} — {p.values.join(' / ')}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1.5">Cost Price</label>
@@ -558,95 +802,8 @@ export default function VariantsPage() {
                         />
                       </div>
                     </div>
-                    <div className="border-t border-border pt-4 mt-4">
-                      <h4 className="text-sm font-semibold mb-3">Physical Properties</h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium mb-1.5">Weight Value</label>
-                          <input
-                            type="number"
-                            step="0.0001"
-                            value={form.weightValue}
-                            onChange={e => setForm(prev => ({ ...prev, weightValue: e.target.value }))}
-                            className="select"
-                            placeholder="0.0000"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1.5">Weight Unit</label>
-                          <select
-                            value={form.weightUnit}
-                            onChange={e => setForm(prev => ({ ...prev, weightUnit: e.target.value as any }))}
-                            className="select"
-                          >
-                            <option value="g">g</option>
-                            <option value="kg">kg</option>
-                            <option value="lb">lb</option>
-                            <option value="oz">oz</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1.5">Length</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={form.lengthValue}
-                            onChange={e => setForm(prev => ({ ...prev, lengthValue: e.target.value }))}
-                            className="select"
-                            placeholder="0.00"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1.5">Width</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={form.widthValue}
-                            onChange={e => setForm(prev => ({ ...prev, widthValue: e.target.value }))}
-                            className="select"
-                            placeholder="0.00"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1.5">Height</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={form.heightValue}
-                            onChange={e => setForm(prev => ({ ...prev, heightValue: e.target.value }))}
-                            className="select"
-                            placeholder="0.00"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1.5">Dimension Unit</label>
-                          <select
-                            value={form.dimensionUnit}
-                            onChange={e => setForm(prev => ({ ...prev, dimensionUnit: e.target.value as any }))}
-                            className="select"
-                          >
-                            <option value="cm">cm</option>
-                            <option value="m">m</option>
-                            <option value="in">in</option>
-                            <option value="ft">ft</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">Variant Image</label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleImageChange(e, false)}
-                        className="input"
-                      />
-                      {imagePreview && (
-                        <div className="mt-2">
-                          <img src={imagePreview} alt="Preview" className="w-32 h-32 object-cover rounded border" />
-                        </div>
-                      )}
-                    </div>
+                    {physicalFields(form, (patch) => setForm(prev => ({ ...prev, ...patch })))}
+                    {canAddMedia && <ImagePicker files={imageFiles} onChange={setImageFiles} />}
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">
                       <button
                         type="button"
@@ -657,9 +814,11 @@ export default function VariantsPage() {
                       </button>
                       <button
                         type="submit"
-                        className="btn btn-primary"
+                        disabled={saving}
+                        className="btn btn-primary inline-flex items-center gap-2"
                       >
-                        Create
+                        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                        {plannedVariants.length > 1 ? `Create ${plannedVariants.length} variants` : 'Create'}
                       </button>
                     </div>
                   </form>
@@ -672,7 +831,7 @@ export default function VariantsPage() {
                 <div className="w-full max-w-2xl rounded-2xl bg-card shadow-2xl border border-border p-6 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold">Edit Variant</h3>
-                    <button onClick={() => setEditing(null)} className="p-1 hover:bg-muted rounded-lg transition-colors">
+                    <button onClick={closeEdit} className="p-1 hover:bg-muted rounded-lg transition-colors">
                       <X className="h-5 w-5" />
                     </button>
                   </div>
@@ -697,23 +856,8 @@ export default function VariantsPage() {
                           className="select"
                         />
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1.5">Option 1 Name</label>
-                        <input
-                          type="text"
-                          value={editForm.option1Name}
-                          onChange={e => setEditForm(prev => ({ ...prev, option1Name: e.target.value }))}
-                          className="select"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1.5">Option 1 Value</label>
-                        <input
-                          type="text"
-                          value={editForm.option1Value}
-                          onChange={e => setEditForm(prev => ({ ...prev, option1Value: e.target.value }))}
-                          className="select"
-                        />
+                      <div className="col-span-2">
+                        <OptionRowsEditor rows={editOptionRows} onChange={setEditOptionRows} multiValue={false} />
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1.5">Cost Price</label>
@@ -760,111 +904,35 @@ export default function VariantsPage() {
                         </select>
                       </div>
                     </div>
-                    <div className="border-t border-border pt-4 mt-4">
-                      <h4 className="text-sm font-semibold mb-3">Physical Properties</h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium mb-1.5">Weight Value</label>
-                          <input
-                            type="number"
-                            step="0.0001"
-                            value={editForm.weightValue}
-                            onChange={e => setEditForm(prev => ({ ...prev, weightValue: e.target.value }))}
-                            className="select"
-                            placeholder="0.0000"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1.5">Weight Unit</label>
-                          <select
-                            value={editForm.weightUnit}
-                            onChange={e => setEditForm(prev => ({ ...prev, weightUnit: e.target.value as any }))}
-                            className="select"
-                          >
-                            <option value="g">g</option>
-                            <option value="kg">kg</option>
-                            <option value="lb">lb</option>
-                            <option value="oz">oz</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1.5">Length</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={editForm.lengthValue}
-                            onChange={e => setEditForm(prev => ({ ...prev, lengthValue: e.target.value }))}
-                            className="select"
-                            placeholder="0.00"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1.5">Width</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={editForm.widthValue}
-                            onChange={e => setEditForm(prev => ({ ...prev, widthValue: e.target.value }))}
-                            className="select"
-                            placeholder="0.00"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1.5">Height</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={editForm.heightValue}
-                            onChange={e => setEditForm(prev => ({ ...prev, heightValue: e.target.value }))}
-                            className="select"
-                            placeholder="0.00"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium mb-1.5">Dimension Unit</label>
-                          <select
-                            value={editForm.dimensionUnit}
-                            onChange={e => setEditForm(prev => ({ ...prev, dimensionUnit: e.target.value as any }))}
-                            className="select"
-                          >
-                            <option value="cm">cm</option>
-                            <option value="m">m</option>
-                            <option value="in">in</option>
-                            <option value="ft">ft</option>
-                          </select>
-                        </div>
+                    {physicalFields(editForm, (patch) => setEditForm(prev => ({ ...prev, ...patch })))}
+                    {editing.imageUrl && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Current main image (choosing new images replaces it with the first one):</p>
+                        <MediaThumb url={editing.imageUrl} className="w-24 h-24" />
                       </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">Variant Image</label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleImageChange(e, true)}
-                        className="input"
-                      />
-                      {(editImagePreview || editing?.imageUrl) && (
-                        <div className="mt-2">
-                          <img src={editImagePreview || editing?.imageUrl || ''} alt="Preview" className="w-32 h-32 object-cover rounded border" />
-                        </div>
-                      )}
-                    </div>
+                    )}
+                    {canAddMedia && (
+                    <ImagePicker
+                      files={editImageFiles}
+                      onChange={setEditImageFiles}
+                      existing={editGallery}
+                      onRemoveExisting={canDeleteMedia ? onRemoveGalleryImage : undefined}
+                    />
+                    )}
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">
                       <button
                         type="button"
-                        onClick={() => {
-                          setEditing(null);
-                          setEditImageFile(null);
-                          setEditImagePreview(null);
-                        }}
+                        onClick={closeEdit}
                         className="btn btn-outline"
                       >
                         Cancel
                       </button>
                       <button
                         type="submit"
-                        className="btn btn-primary"
+                        disabled={saving}
+                        className="btn btn-primary inline-flex items-center gap-2"
                       >
+                        {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                         Update
                       </button>
                     </div>
@@ -901,4 +969,3 @@ export default function VariantsPage() {
     </div>
   );
 }
-

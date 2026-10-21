@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
 import { Pencil, Trash2, Plus, X } from 'lucide-react';
 
@@ -15,6 +16,8 @@ export default function CreatorsPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'SOCIAL_MANAGER']);
+  const { can } = useApiAccess();
+  const canDelete = can('DELETE', '/api/social/creators/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<any[]>([]);
   const [showCreate, setShowCreate] = useState(false);
@@ -111,6 +114,7 @@ export default function CreatorsPage() {
           >
             <Pencil className="h-4 w-4" />
           </button>
+          {canDelete && (
           <button
             onClick={() => setConfirmDel(row.original)}
             className="p-1 hover:bg-destructive/10 rounded text-destructive transition-colors"
@@ -118,10 +122,11 @@ export default function CreatorsPage() {
           >
             <Trash2 className="h-4 w-4" />
           </button>
+          )}
         </div>
       )
     }
-  ], []);
+  ], [canDelete]);
 
   if (!hydrated || loading) {
     return (

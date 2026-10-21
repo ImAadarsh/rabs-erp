@@ -25,6 +25,11 @@ import { adminListNotifications, createNotification } from '@services/b2b/b2bNot
 import { adminListReferrals, adminUpdateReferral } from '@services/b2b/b2bReferrals.service.js';
 import { B2bShippingMethod } from '@entities/b2b/B2bShippingMethod.js';
 import { AppDataSource as DS } from '@config/data-source.js';
+import { B2bShipment } from '@entities/b2b/B2bShipment.js';
+import { B2bCreditLedger } from '@entities/b2b/B2bCreditLedger.js';
+import { createPortalOrder } from '@services/b2b/b2bOrders.service.js';
+import { listPortalProducts } from '@services/b2b/b2bCatalog.service.js';
+import { inactiveWarehouseError } from '@services/inventory/locationStatus.js';
 
 function orgIdFromReq(req: Request): string | undefined {
   return (req.query.organizationId as string) || req.body?.organizationId || (req as any).auth?.orgId;
@@ -59,6 +64,37 @@ const retailerSchema = z.object({
   creditLimit: z.number().optional(),
   paymentTerms: z.string().optional()
 });
+
+const adminOrderSchema = z.object({
+  organizationId: z.string(),
+  retailerId: z.string().min(1),
+  lines: z.array(z.object({
+    variantId: z.string().min(1),
+    quantity: z.number().int().min(1),
+    unitPrice: z.number().min(0).optional()
+  })).min(1),
+  shippingMethodCode: z.string().optional(),
+  addressId: z.string().optional(),
+  customerNotes: z.string().optional(),
+  paymentMethod: z.enum(['trade_credit', 'bank_transfer', 'pay_on_portal']).optional()
+});
+
+const STAFF_PAYMENT_LABELS: Record<NonNullable<z.infer<typeof adminOrderSchema>['paymentMethod']>, string> = {
+  trade_credit: 'Trade Credit',
+  bank_transfer: 'Bank Transfer',
+  pay_on_portal: 'Retailer pays on portal'
+};
+
+function issuesMessage(error: z.ZodError): string {
+  return error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+}
+
+async function loadRetailer(organizationId: string, id: string) {
+  return AppDataSource.getRepository(RetailerAccount).findOne({
+    where: { id, organization: { id: organizationId } },
+    relations: ['customer', 'customer.addresses']
+  });
+}
 
 export class B2bAdminController {
   static async dashboard(req: Request, res: Response): Promise<void> {
@@ -96,11 +132,19 @@ export class B2bAdminController {
         .select('COALESCE(SUM(o.total), 0)', 'gmv')
         .andWhere("o.status NOT IN ('cancelled', 'refunded')")
         .getRawOne();
+      const [affiliateRow] = await AppDataSource.query(
+        `SELECT COUNT(*) AS conversions, COALESCE(SUM(cv.order_value), 0) AS revenue
+           FROM affiliate_conversions cv JOIN affiliates a ON a.id = cv.affiliate_id
+          WHERE a.organization_id = ? AND cv.channel = 'b2b_portal'`,
+        [organizationId]
+      );
 
       res.json({
         data: {
           settings,
           stats: {
+            b2bConversions: Number(affiliateRow?.conversions ?? 0),
+            b2bRevenue: Number(Number(affiliateRow?.revenue ?? 0).toFixed(4)),
             catalogProducts: totalCatalog,
             publishedProducts: settings.publishMode === 'all_active' ? totalCatalog : publishedMappings,
             retailers,
@@ -133,7 +177,7 @@ export class B2bAdminController {
     try {
       const parsed = settingsSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: issuesMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const settings = await getOrCreateB2bSettings(parsed.data.organizationId);
@@ -159,9 +203,15 @@ export class B2bAdminController {
           : null;
       }
       if (parsed.data.defaultWarehouseId !== undefined) {
-        settings.defaultWarehouse = parsed.data.defaultWarehouseId
+        const warehouse = parsed.data.defaultWarehouseId
           ? await AppDataSource.getRepository(Warehouse).findOne({ where: { id: parsed.data.defaultWarehouseId } })
           : null;
+        const warehouseError = warehouse && warehouse.id !== settings.defaultWarehouse?.id ? inactiveWarehouseError(warehouse) : null;
+        if (warehouseError) {
+          res.status(400).json({ error: { message: warehouseError } });
+          return;
+        }
+        settings.defaultWarehouse = warehouse;
       }
       await AppDataSource.getRepository(B2bPortalSettings).save(settings);
       const saved = await getOrCreateB2bSettings(parsed.data.organizationId);
@@ -242,7 +292,7 @@ export class B2bAdminController {
         catalogItemIds: z.array(z.string()).min(1)
       }).safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: issuesMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const items = await AppDataSource.getRepository(CatalogItem).find({
@@ -282,7 +332,7 @@ export class B2bAdminController {
         catalogItemIds: z.array(z.string()).min(1)
       }).safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: issuesMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       await AppDataSource.getRepository(ChannelMapping)
@@ -327,7 +377,7 @@ export class B2bAdminController {
     try {
       const parsed = retailerSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: issuesMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const org = await AppDataSource.getRepository(Organization).findOne({ where: { id: parsed.data.organizationId } });
@@ -407,7 +457,7 @@ export class B2bAdminController {
         tier: z.enum(['standard', 'silver', 'gold', 'platinum']).optional()
       }).safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: issuesMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const accountRepo = AppDataSource.getRepository(RetailerAccount);
@@ -436,6 +486,143 @@ export class B2bAdminController {
         relations: ['customer', 'organization']
       });
       res.json({ data: saved });
+    } catch (error: any) {
+      res.status(500).json({ error: { message: error.message } });
+    }
+  }
+
+  static async retailerDetail(req: Request, res: Response): Promise<void> {
+    try {
+      const organizationId = orgIdFromReq(req);
+      if (!organizationId) {
+        res.status(400).json({ error: { message: 'organizationId required' } });
+        return;
+      }
+      const account = await loadRetailer(organizationId, req.params.id);
+      if (!account) {
+        res.status(404).json({ error: { message: 'Retailer not found' } });
+        return;
+      }
+      const customerId = account.customer?.id;
+      const [orders, ledger] = customerId
+        ? await Promise.all([
+            AppDataSource.getRepository(Order).find({
+              where: { customer: { id: customerId }, channel: 'b2b_portal' },
+              order: { createdAt: 'DESC' },
+              take: 100
+            }),
+            AppDataSource.getRepository(B2bCreditLedger).find({
+              where: { customer: { id: customerId } },
+              order: { createdAt: 'DESC' },
+              take: 50
+            })
+          ])
+        : [[], []];
+      const { passwordHash: _ph, ...safe } = account as any;
+      res.json({
+        data: {
+          ...safe,
+          orders,
+          ledger,
+          stats: {
+            orderCount: orders.length,
+            totalSpend: orders
+              .filter((o) => !['cancelled', 'refunded'].includes(o.status))
+              .reduce((sum, o) => sum + Number(o.total || 0), 0),
+            lastOrderAt: orders[0]?.orderDate ?? null
+          }
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: { message: error.message } });
+    }
+  }
+
+  static async retailerCatalog(req: Request, res: Response): Promise<void> {
+    try {
+      const organizationId = orgIdFromReq(req);
+      if (!organizationId) {
+        res.status(400).json({ error: { message: 'organizationId required' } });
+        return;
+      }
+      const account = await loadRetailer(organizationId, req.params.id);
+      if (!account?.customer) {
+        res.status(404).json({ error: { message: 'Retailer not found' } });
+        return;
+      }
+      const products = await listPortalProducts({
+        organizationId,
+        customer: account.customer,
+        search: req.query.search ? String(req.query.search) : undefined
+      });
+      res.json({ data: products });
+    } catch (error: any) {
+      res.status(500).json({ error: { message: error.message } });
+    }
+  }
+
+  static async createOrder(req: Request, res: Response): Promise<void> {
+    try {
+      const parsed = adminOrderSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: { message: issuesMessage(parsed.error), details: parsed.error.issues } });
+        return;
+      }
+      const account = await loadRetailer(parsed.data.organizationId, parsed.data.retailerId);
+      if (!account?.customer) {
+        res.status(404).json({ error: { message: 'Retailer not found' } });
+        return;
+      }
+      const order = await createPortalOrder({
+        organizationId: parsed.data.organizationId,
+        customer: account.customer,
+        lines: parsed.data.lines,
+        shippingMethodCode: parsed.data.shippingMethodCode,
+        addressId: parsed.data.addressId,
+        customerNotes: parsed.data.customerNotes,
+        allowOversell: true,
+        chargeTradeCredit: parsed.data.paymentMethod === 'trade_credit',
+        internalNotes: `Staff order. Payment method: ${
+          parsed.data.paymentMethod ? STAFF_PAYMENT_LABELS[parsed.data.paymentMethod] : 'Arranged by sales rep'
+        }`
+      });
+      const userId = (req as any).auth?.sub;
+      if (order && userId) {
+        await AppDataSource.getRepository(Order).update(order.id, { createdBy: { id: userId } as any });
+      }
+      res.status(201).json({ data: order });
+    } catch (error: any) {
+      res.status(error.status || 500).json({ error: { message: error.message, ...(error.code ? { code: error.code } : {}) } });
+    }
+  }
+
+  static async orderDetail(req: Request, res: Response): Promise<void> {
+    try {
+      const organizationId = orgIdFromReq(req);
+      if (!organizationId) {
+        res.status(400).json({ error: { message: 'organizationId required' } });
+        return;
+      }
+      const order = await AppDataSource.getRepository(Order).findOne({
+        where: { id: req.params.id, organization: { id: organizationId }, channel: 'b2b_portal' },
+        relations: ['customer', 'lines', 'lines.variant', 'addresses', 'createdBy']
+      });
+      if (!order) {
+        res.status(404).json({ error: { message: 'Order not found' } });
+        return;
+      }
+      const [shipments, payments] = await Promise.all([
+        AppDataSource.getRepository(B2bShipment).find({
+          where: { order: { id: order.id } },
+          relations: ['events'],
+          order: { createdAt: 'DESC' }
+        }),
+        AppDataSource.getRepository(Payment).find({ where: { orderId: order.id }, order: { createdAt: 'DESC' } })
+      ]);
+      const createdBy = order.createdBy
+        ? { id: order.createdBy.id, email: (order.createdBy as any).email ?? null }
+        : null;
+      res.json({ data: { ...order, createdBy, shipments, payments } });
     } catch (error: any) {
       res.status(500).json({ error: { message: error.message } });
     }
@@ -577,7 +764,7 @@ export class B2bAdminController {
         })
         .safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: issuesMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const repo = AppDataSource.getRepository(B2bCreditRequest);
@@ -634,7 +821,7 @@ export class B2bAdminController {
         })
         .safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: issuesMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const row = await createNotification({

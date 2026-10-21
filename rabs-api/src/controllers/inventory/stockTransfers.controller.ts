@@ -15,6 +15,7 @@ import {
   nextTransferNumber,
   StockTransferError
 } from '@services/inventory/stockTransfer.service.js';
+import { inactiveWarehouseError } from '@services/inventory/locationStatus.js';
 
 const transferLineSchema = z.object({
   variantId: z.string(),
@@ -182,8 +183,7 @@ export class StockTransfersController {
         return;
       }
 
-      const currentUser = (req as any).user;
-      const userId = currentUser?.id ? String(currentUser.id) : null;
+      const userId = (req as any).auth?.sub ? String((req as any).auth.sub) : null;
 
       const transferId = await AppDataSource.transaction(async (manager) => {
         const org = await manager.getRepository(Organization).findOne({ where: { id: input.organizationId } });
@@ -194,6 +194,9 @@ export class StockTransfersController {
         if (!fromWarehouse) throw new StockTransferError('Invalid fromWarehouseId');
         const toWarehouse = await warehouseRepo.findOne({ where: { id: input.toWarehouseId } });
         if (!toWarehouse) throw new StockTransferError('Invalid toWarehouseId');
+        const warehouseError = inactiveWarehouseError(fromWarehouse, 'Source warehouse')
+          ?? inactiveWarehouseError(toWarehouse, 'Destination warehouse');
+        if (warehouseError) throw new StockTransferError(warehouseError);
 
         const transferNumber = input.transferNumber ?? await nextTransferNumber(manager, new Date(input.transferDate));
         const repo = manager.getRepository(StockTransfer);
@@ -303,8 +306,7 @@ export class StockTransfersController {
   /** Deleting a completed transfer returns the stock to the source warehouse. */
   static async remove(req: Request, res: Response): Promise<void> {
     try {
-      const currentUser = (req as any).user;
-      const userId = currentUser?.id ? String(currentUser.id) : null;
+      const userId = (req as any).auth?.sub ? String((req as any).auth.sub) : null;
 
       const found = await AppDataSource.transaction(async (manager) => {
         const repo = manager.getRepository(StockTransfer);

@@ -4,6 +4,7 @@ import { ChartOfAccounts } from '@entities/finance/ChartOfAccounts.js';
 import { z } from 'zod';
 import { Organization } from '@entities/iam/Organization.js';
 import { BusinessUnit } from '@entities/iam/BusinessUnit.js';
+import { zodMessage } from '@services/finance/zodMessage.js';
 
 const createChartOfAccountsSchema = z.object({
   organizationId: z.string(),
@@ -85,7 +86,7 @@ export class ChartOfAccountsController {
     try {
       const parsed = createChartOfAccountsSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 
@@ -135,7 +136,7 @@ export class ChartOfAccountsController {
       const parsed = updateChartOfAccountsSchema.safeParse(req.body);
       
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 

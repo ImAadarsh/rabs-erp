@@ -13,7 +13,7 @@ import {
   listPmMilestones, createPmMilestone, updatePmMilestone,
   listPmSchedule, createPmScheduleBlock,
   listPmProjectMembers, addPmProjectMember, removePmProjectMember,
-  listPmStages, createPmStage, listUsers,
+  listPmStages, createPmStage, listUserOptions,
 } from '@/lib/api';
 import {
   DELIVERABLE_STATUSES, formatDate, formatDateTime, formatMoney, MEMBER_ROLES,
@@ -122,7 +122,7 @@ export default function ProjectDetailPage() {
       return;
     }
     void load();
-    void listUsers().then((r) => setUsers(r.data || [])).catch(() => undefined);
+    void listUserOptions().then((r) => setUsers(r.data || [])).catch(() => undefined);
   }, [hydrated, session?.accessToken, router, load]);
 
   async function saveOverview(e: React.FormEvent) {

@@ -8,6 +8,7 @@ import { env } from '@config/env.js';
 import { Role } from '@entities/iam/Role.js';
 import { RoleAssignment } from '@entities/iam/RoleAssignment.js';
 import { OAuth2Client } from 'google-auth-library';
+import { clearPageAccessCache, resolveAllowedPages } from '@services/iam/pageAccess.service.js';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -43,6 +44,8 @@ export class AuthController {
       relations: ['role']
     });
     const roles = Array.from(new Set(roleAssignments.map((r) => (r.role as Role).code)));
+    clearPageAccessCache(user.id);
+    const pages = await resolveAllowedPages(user.id, roles);
 
     const accessToken = jwt.sign(
       { sub: user.id, orgId: user.organization.id, roles },
@@ -64,7 +67,30 @@ export class AuthController {
         lastName: user.lastName,
         status: user.status,
         organizationId: user.organization.id,
-        roles
+        roles,
+        pages
+      }
+    });
+  }
+
+  /** Current user's roles and allowed panel pages (`pages: null` = unrestricted). */
+  static async me(req: Request, res: Response): Promise<void> {
+    const auth = (req as any).auth as { sub: string; orgId: string; roles: string[] };
+    const user = await AppDataSource.getRepository(User).findOne({ where: { id: auth.sub } });
+    if (!user) {
+      res.status(404).json({ error: { message: 'User not found' } });
+      return;
+    }
+    const pages = await resolveAllowedPages(user.id, auth.roles || []);
+    res.json({
+      data: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        organizationId: auth.orgId,
+        roles: auth.roles || [],
+        pages
       }
     });
   }

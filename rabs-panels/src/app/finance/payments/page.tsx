@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
 import { RichDataTable } from '@/components/rich-data-table';
@@ -12,6 +13,7 @@ import { listPayments, listOrderSyncConnections, syncAllChannelOrders, type Orde
 import { CreditCard, Eye, ArrowDownToLine, RefreshCw, Store, Monitor, X, Download } from 'lucide-react';
 import { ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
+import { PaymentDetailModal, PaymentReference, paymentReferenceText } from '@/components/finance/payment-detail-modal';
 
 type Payment = {
   id: string;
@@ -73,6 +75,8 @@ function money(amount: number | string | undefined, currency = 'GBP') {
 export default function PaymentsPage() {
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'FINANCE']);
+  const { can } = useApiAccess();
+  const canSyncChannels = can('POST', '/api/orders/channel-sync/import');
   const [data, setData] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<Record<string, string>>({});
@@ -227,8 +231,10 @@ export default function PaymentsPage() {
           <div className="truncate font-mono text-xs" title={row.original.transactionId ?? ''}>
             {row.original.transactionId || `#${row.original.id}`}
           </div>
-          {row.original.reference && (
-            <div className="text-xs text-muted-foreground">{row.original.reference}</div>
+          {paymentReferenceText(row.original.reference) && (
+            <div className="text-xs text-muted-foreground">
+              <PaymentReference value={row.original.reference} />
+            </div>
           )}
         </div>
       )
@@ -370,7 +376,7 @@ export default function PaymentsPage() {
     const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const rows = data.map((p) => [
       p.transactionId ?? p.id,
-      p.reference ?? '',
+      paymentReferenceText(p.reference),
       p.order?.orderNumber ?? '',
       p.order?.channel ?? '',
       p.order?.channelConnection?.name ?? '',
@@ -447,7 +453,7 @@ export default function PaymentsPage() {
                     <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                     Refresh
                   </button>
-                  <button
+                  {canSyncChannels && <button
                     onClick={() => void onSyncChannels()}
                     disabled={syncing}
                     title="Fetch new orders and payments from POS and linked websites"
@@ -455,7 +461,7 @@ export default function PaymentsPage() {
                   >
                     <Download className={`h-4 w-4 ${syncing ? 'animate-pulse' : ''}`} />
                     {syncing ? (syncProgress || 'Syncing…') : 'Sync Channels'}
-                  </button>
+                  </button>}
                   <button
                     onClick={exportCsv}
                     className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm hover:bg-muted"

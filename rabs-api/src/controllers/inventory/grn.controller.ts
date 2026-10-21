@@ -9,6 +9,7 @@ import { User } from '@entities/iam/User.js';
 import { ASN } from '@entities/inventory/ASN.js';
 import { PurchaseOrder } from '@entities/inventory/PurchaseOrder.js';
 import { Variant } from '@entities/catalog/Variant.js';
+import { inactiveWarehouseError } from '@services/inventory/locationStatus.js';
 
 const grnLineSchema = z.object({
   purchaseOrderLineId: z.string().optional(),
@@ -147,6 +148,11 @@ export class GRNController {
       const warehouse = await warehouseRepo.findOne({ where: { id: parsed.data.warehouseId } });
       if (!warehouse) {
         res.status(400).json({ error: { message: 'Invalid warehouseId' } });
+        return;
+      }
+      const warehouseError = inactiveWarehouseError(warehouse);
+      if (warehouseError) {
+        res.status(400).json({ error: { message: warehouseError } });
         return;
       }
 

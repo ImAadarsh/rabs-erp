@@ -58,7 +58,7 @@ export class UsersController {
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createUserSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: `Invalid payload: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, details: parsed.error.issues } });
       return;
     }
     const orgRepo = AppDataSource.getRepository(Organization);
@@ -167,7 +167,9 @@ export class UsersController {
     if (typeof body.username === 'string' || body.username === null) user.username = body.username ?? null;
     if (typeof body.firstName === 'string' || body.firstName === null) user.firstName = body.firstName ?? null;
     if (typeof body.lastName === 'string' || body.lastName === null) user.lastName = body.lastName ?? null;
-    if (typeof body.status === 'string') user.status = body.status;
+    const authRoles: string[] = (req as any).auth?.roles ?? [];
+    const isAdmin = authRoles.includes('ADMIN') || authRoles.includes('SUPER_ADMIN');
+    if (typeof body.status === 'string' && isAdmin) user.status = body.status;
     await repo.save(user);
     res.json({ data: user });
   }
@@ -186,7 +188,7 @@ export class UsersController {
   static async changePassword(req: Request, res: Response): Promise<void> {
     const parsed = changePasswordSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: `Invalid payload: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, details: parsed.error.issues } });
       return;
     }
 
@@ -219,7 +221,7 @@ export class UsersController {
   static async setPassword(req: Request, res: Response): Promise<void> {
     const parsed = setPasswordSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: `Invalid payload: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, details: parsed.error.issues } });
       return;
     }
 

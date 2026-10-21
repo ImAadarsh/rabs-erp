@@ -32,6 +32,18 @@ export async function resolveVatRate(
   return { rate: Number(code.rate), vatCodeId: code.id };
 }
 
+/** Reverse-charge codes: the buyer self-accounts the VAT, so it is never owed to the supplier. */
+export async function isReverseChargeCode(
+  organizationId: string,
+  vatCodeId?: string | null
+): Promise<boolean> {
+  if (!vatCodeId) return false;
+  const code = await AppDataSource.getRepository(AccVatCode).findOne({
+    where: { id: vatCodeId, organizationId }
+  });
+  return String(code?.code || '').toUpperCase() === 'RC';
+}
+
 /** taxRate is a fraction (0.20 = 20%). */
 export function calcVatOnNet(netAmount: number, taxRate: number): VatLineResult {
   const net = roundMoney(netAmount);

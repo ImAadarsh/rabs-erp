@@ -3,6 +3,7 @@ import { AppDataSource } from '@config/data-source.js';
 import { Bundle } from '@entities/catalog/Bundle.js';
 import { CatalogItem } from '@entities/catalog/CatalogItem.js';
 import { z } from 'zod';
+import { zodMessage } from '@services/catalog/zodMessage.js';
 
 const createBundleSchema = z.object({
   catalogItemId: z.string(),
@@ -64,7 +65,7 @@ export class BundlesController {
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createBundleSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
@@ -102,7 +103,7 @@ export class BundlesController {
     const parsed = updateBundleSchema.safeParse(req.body);
     
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 

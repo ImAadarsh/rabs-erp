@@ -3,7 +3,39 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env } from '@config/env.js';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
+import fs from 'fs/promises';
 import { probePublicUrl } from '@services/social/socialMediaUrl.js';
+
+const hasS3Creds = Boolean(env.AWS_S3_BUCKET_NAME && env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY);
+export const storageDriver: 'local' | 's3' =
+  env.STORAGE_DRIVER === 'local' || env.STORAGE_DRIVER === 's3'
+    ? (env.STORAGE_DRIVER as 'local' | 's3')
+    : hasS3Creds
+      ? 's3'
+      : 'local';
+
+export const uploadsRoot = path.resolve(process.cwd(), env.UPLOADS_DIR);
+const localUrlPrefix = `${env.PUBLIC_API_URL}/uploads/`;
+
+function safeKey(key: string): string {
+  const normalized = path.posix.normalize(key.replace(/\\/g, '/').replace(/^\/+/, ''));
+  if (normalized.startsWith('..')) throw new Error('Invalid storage key');
+  return normalized;
+}
+
+async function putLocal(key: string, body: Buffer): Promise<string> {
+  const k = safeKey(key);
+  const target = path.join(uploadsRoot, k);
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, body);
+  return `${localUrlPrefix}${k}`;
+}
+
+function isS3CredentialError(error: any): boolean {
+  return /InvalidAccessKeyId|SignatureDoesNotMatch|AccessDenied|AllAccessDisabled|not configured/i.test(
+    `${error?.name || ''} ${error?.Code || ''} ${error?.message || ''}`
+  );
+}
 
 const s3Client = new S3Client({
   region: env.AWS_REGION,
@@ -93,6 +125,15 @@ export async function uploadFile(options: UploadFileOptions): Promise<UploadResu
     : `${uuidv4()}${fileExtension}`;
 
   const s3Key = folder ? `${folder}/${uniqueFileName}` : uniqueFileName;
+  const result = (url: string): UploadResult => ({
+    url,
+    key: s3Key,
+    fileName: uniqueFileName,
+    size: file.size,
+    mimeType: file.mimetype
+  });
+
+  if (storageDriver === 'local') return result(await putLocal(s3Key, file.buffer));
 
   const command = new PutObjectCommand({
     Bucket: env.AWS_S3_BUCKET_NAME,
@@ -103,14 +144,12 @@ export async function uploadFile(options: UploadFileOptions): Promise<UploadResu
 
   try {
     await s3Client.send(command);
-    return {
-      url: publicObjectUrl(s3Key),
-      key: s3Key,
-      fileName: uniqueFileName,
-      size: file.size,
-      mimeType: file.mimetype
-    };
+    return result(publicObjectUrl(s3Key));
   } catch (error: any) {
+    if (isS3CredentialError(error)) {
+      console.warn(`[storage] S3 upload rejected (${error?.name || 'error'}); stored on local disk instead`);
+      return result(await putLocal(s3Key, file.buffer));
+    }
     throw sanitizeS3Error(error, 'upload');
   }
 }
@@ -123,10 +162,6 @@ export async function uploadSocialPostMedia(options: {
   file: Express.Multer.File;
   organizationId: string;
 }): Promise<UploadResult> {
-  if (!env.AWS_S3_BUCKET_NAME || !env.AWS_ACCESS_KEY_ID || !env.AWS_SECRET_ACCESS_KEY) {
-    throw new Error('AWS S3 is not configured. Set AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_S3_BUCKET_NAME.');
-  }
-
   const { file, organizationId } = options;
   const isVideo = file.mimetype.startsWith('video/') || /\.(mp4|mov|webm)$/i.test(file.originalname);
   const maxMb = isVideo ? 100 : 15;
@@ -138,6 +173,15 @@ export async function uploadSocialPostMedia(options: {
   const uniqueFileName = `${uuidv4()}${ext}`;
   const org = String(organizationId || 'unknown').replace(/[^0-9A-Za-z_-]/g, '');
   const s3Key = `social/posts/${org}/${uniqueFileName}`;
+  const localResult = async (): Promise<UploadResult> => ({
+    url: await putLocal(s3Key, file.buffer),
+    key: s3Key,
+    fileName: uniqueFileName,
+    size: file.size,
+    mimeType: file.mimetype
+  });
+
+  if (storageDriver === 'local') return localResult();
 
   const basePut = {
     Bucket: env.AWS_S3_BUCKET_NAME,
@@ -159,6 +203,7 @@ export async function uploadSocialPostMedia(options: {
       }
     }
   } catch (error: any) {
+    if (isS3CredentialError(error)) return localResult();
     throw sanitizeS3Error(error, 'PutObject');
   }
 
@@ -194,6 +239,17 @@ export async function uploadSocialPostMedia(options: {
 }
 
 export async function deleteFile(key: string): Promise<void> {
+  const localPath = path.join(uploadsRoot, safeKey(key.replace(/^uploads\//, '')));
+  const existsLocally = await fs
+    .stat(localPath)
+    .then((s) => s.isFile())
+    .catch(() => false);
+  if (existsLocally) {
+    await fs.unlink(localPath);
+    return;
+  }
+  if (storageDriver === 'local') return;
+
   const command = new DeleteObjectCommand({
     Bucket: env.AWS_S3_BUCKET_NAME,
     Key: key
@@ -217,6 +273,10 @@ export function extractKeyFromUrl(url: string): string | null {
 }
 
 export async function deleteFileByUrl(url: string): Promise<void> {
+  if (url.startsWith(localUrlPrefix)) {
+    await deleteFile(url.slice(localUrlPrefix.length));
+    return;
+  }
   const key = extractKeyFromUrl(url);
   if (!key) {
     throw new Error('Invalid S3 URL');

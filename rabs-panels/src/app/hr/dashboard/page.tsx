@@ -1,17 +1,29 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { ColumnDef } from '@tanstack/react-table';
 import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
 import { StatCard } from '@/components/stat-card';
+import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import {
   listEmployees, listLeaveRequests, listPayrollRuns, listTimeEntries,
-  getHrReportsSummary, listVisaExpiring, listComplianceAlerts,
+  getHrReportsSummary, listVisaBoard, listAllComplianceAlerts,
 } from '@/lib/api';
-import { employeeName, flattenHrSummary, formatDate, hrApiError, isApiMissing, visaRiskClass, daysUntil } from '@/lib/hr-utils';
+import {
+  employeeName, flattenHrSummary, formatDate, hrApiError, isApiMissing, visaRiskClass, daysUntil,
+  statusBadgeClass as hrStatusBadgeClass,
+} from '@/lib/hr-utils';
+
+function severityClass(severity?: string): string {
+  if (severity === 'critical') return 'bg-red-500/10 text-red-600';
+  if (severity === 'warning') return 'bg-amber-500/10 text-amber-700';
+  return 'bg-sky-500/10 text-sky-700';
+}
 import {
   Users, Calendar, Clock, DollarSign, AlertTriangle, ShieldCheck,
   FileText, Briefcase, UserCheck, ClipboardList, PiggyBank, BarChart3,
@@ -36,11 +48,107 @@ export default function HRDashboard() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'HR_MANAGER', 'HR_ADMIN', 'FINANCE']);
+  const { can } = useApiAccess();
+  const canCreateEmployee = can('POST', '/api/hr/employees');
+  const canPostJob = can('POST', '/api/hr/job-postings');
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<any>(null);
   const [visaRisk, setVisaRisk] = useState<any[]>([]);
   const [alerts, setAlerts] = useState<any[]>([]);
   const [fallbackReady, setFallbackReady] = useState(false);
+
+  const visaColumns = useMemo<ColumnDef<any>[]>(
+    () => [
+      {
+        id: 'employee',
+        header: 'Employee',
+        accessorFn: (r) => r.employeeName || employeeName(r.employee || r),
+        cell: ({ row, getValue }) =>
+          row.original.employeeId ? (
+            <Link href={`/hr/employees/${row.original.employeeId}`} className="font-medium text-brand hover:underline">
+              {String(getValue() || '—')}
+            </Link>
+          ) : (
+            <span className="font-medium">{String(getValue() || '—')}</span>
+          ),
+      },
+      { accessorKey: 'visaType', header: 'Visa type', cell: ({ row }) => row.original.visaType || '—' },
+      {
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => (
+          <span className={`inline-flex text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${hrStatusBadgeClass(row.original.status)}`}>
+            {String(row.original.status || '—').replace(/_/g, ' ')}
+          </span>
+        ),
+      },
+      {
+        id: 'expiry',
+        header: 'Expiry date',
+        accessorFn: (r) => String(r.visaExpiry || r.expiryDate || '').slice(0, 10),
+        cell: ({ getValue }) => formatDate(getValue() as string),
+      },
+      {
+        id: 'daysLeft',
+        header: 'Days left',
+        accessorFn: (r) => daysUntil(r.visaExpiry || r.expiryDate) ?? Number.MAX_SAFE_INTEGER,
+        cell: ({ row }) => {
+          const days = daysUntil(row.original.visaExpiry || row.original.expiryDate);
+          return (
+            <span className={`inline-flex text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${visaRiskClass(days)}`}>
+              {days == null ? '—' : days < 0 ? `Expired ${Math.abs(days)}d ago` : days === 0 ? 'Today' : `${days}d`}
+            </span>
+          );
+        },
+      },
+    ],
+    []
+  );
+
+  const reminderColumns = useMemo<ColumnDef<any>[]>(
+    () => [
+      {
+        accessorKey: 'title',
+        header: 'Reminder',
+        cell: ({ row }) => (
+          <div className="min-w-0">
+            <div className="font-medium">{row.original.title || row.original.message || row.original.alertType}</div>
+            {row.original.message && row.original.title ? <div className="text-xs text-muted-foreground truncate max-w-[420px]">{row.original.message}</div> : null}
+          </div>
+        ),
+      },
+      {
+        id: 'date',
+        header: 'Date',
+        accessorFn: (r) => String(r.dueDate || r.createdAt || '').slice(0, 10),
+        cell: ({ getValue }) => formatDate(getValue() as string),
+      },
+      {
+        accessorKey: 'severity',
+        header: 'Severity',
+        cell: ({ row }) => (
+          <span className={`inline-flex text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${severityClass(row.original.severity)}`}>
+            {row.original.severity || 'info'}
+          </span>
+        ),
+      },
+      { accessorKey: 'alertType', header: 'Type', cell: ({ row }) => <span className="capitalize">{String(row.original.alertType || '—').replace(/_/g, ' ')}</span> },
+      {
+        id: 'link',
+        header: '',
+        enableSorting: false,
+        cell: ({ row }) =>
+          row.original.employeeId ? (
+            <Link href={`/hr/employees/${row.original.employeeId}`} className="text-xs font-semibold text-brand hover:underline whitespace-nowrap">
+              {row.original.employee ? `${employeeName(row.original.employee)} →` : 'Open employee →'}
+            </Link>
+          ) : (
+            <Link href="/hr/reports" className="text-xs text-muted-foreground hover:underline">Reports →</Link>
+          ),
+      },
+    ],
+    []
+  );
 
   useEffect(() => {
     if (!hydrated || !hasAccess) return;
@@ -75,13 +183,13 @@ export default function HRDashboard() {
         }
 
         try {
-          const v = await listVisaExpiring({ organizationId: orgId, withinDays: 90, limit: 8 });
-          setVisaRisk(Array.isArray(v.data) ? v.data : []);
+          const v = await listVisaBoard({ organizationId: orgId, withinDays: 90 });
+          setVisaRisk(v.data);
         } catch { /* optional until UK API live */ }
 
         try {
-          const a = await listComplianceAlerts({ organizationId: orgId, limit: 8 });
-          setAlerts(a.data || []);
+          const a = await listAllComplianceAlerts({ organizationId: orgId, status: 'open' });
+          setAlerts(a.data);
         } catch { /* optional */ }
       } catch (e) {
         toast.error(hrApiError(e, 'Failed to load HR dashboard'));
@@ -135,15 +243,19 @@ export default function HRDashboard() {
               <p className="text-sm text-muted-foreground mt-0.5">People, leave, payroll &amp; compliance</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link href="/hr/employees" className="inline-flex items-center gap-2 h-10 px-4 rounded-xl bg-brand hover:bg-brand-600 text-white text-sm font-medium shadow-lg shadow-brand/20">
-                <Users size={14} /> Create employee
-              </Link>
+              {canCreateEmployee && (
+                <Link href="/hr/employees" className="inline-flex items-center gap-2 h-10 px-4 rounded-xl bg-brand hover:bg-brand-600 text-white text-sm font-medium shadow-lg shadow-brand/20">
+                  <Users size={14} /> Create employee
+                </Link>
+              )}
               <Link href="/hr/leave" className="inline-flex items-center gap-2 h-10 px-4 rounded-xl border border-border bg-card text-sm font-medium">
                 <Calendar size={14} /> Leave
               </Link>
-              <Link href="/hr/recruitment" className="inline-flex items-center gap-2 h-10 px-4 rounded-xl border border-border bg-card text-sm font-medium">
-                <Briefcase size={14} /> Post job
-              </Link>
+              {canPostJob && (
+                <Link href="/hr/recruitment" className="inline-flex items-center gap-2 h-10 px-4 rounded-xl border border-border bg-card text-sm font-medium">
+                  <Briefcase size={14} /> Post job
+                </Link>
+              )}
             </div>
           </div>
 
@@ -188,65 +300,31 @@ export default function HRDashboard() {
             </div>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            <section className="glass-panel rounded-2xl border border-border/50 overflow-hidden">
-              <div className="px-5 py-4 border-b border-border/50 flex items-center justify-between">
+          <section className="glass-panel rounded-2xl border border-border/50 p-5 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
                 <h3 className="font-semibold flex items-center gap-2">
                   <ShieldCheck size={16} className="text-brand" /> Visa expiry board
                 </h3>
-                <Link href="/hr/immigration" className="text-xs text-brand hover:underline">Open</Link>
+                <p className="text-xs text-muted-foreground mt-0.5">Expired visas and those expiring in the next 90 days ({visaRisk.length})</p>
               </div>
-              <div className="divide-y divide-border/40">
-                {visaRisk.length === 0 && (
-                  <div className="px-5 py-8 text-sm text-muted-foreground text-center">
-                    No visa risks loaded — open Immigration once the compliance API is live.
-                  </div>
-                )}
-                {visaRisk.map((row: any) => {
-                  const expiry = row.visaExpiry || row.expiryDate;
-                  const days = daysUntil(expiry);
-                  return (
-                    <div key={row.id || row.employeeId} className="px-5 py-3 flex items-center justify-between gap-3">
-                      <div>
-                        <div className="font-medium text-sm">{row.employeeName || employeeName(row.employee || row)}</div>
-                        <div className="text-xs text-muted-foreground">{row.visaType || row.status || '—'}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs text-muted-foreground">{formatDate(expiry)}</div>
-                        <span className={`inline-flex mt-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${visaRiskClass(days)}`}>
-                          {days == null ? '—' : days < 0 ? `${Math.abs(days)}d overdue` : `${days}d`}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
+              <Link href="/hr/immigration" className="text-xs text-brand hover:underline">Open immigration</Link>
+            </div>
+            <RichDataTable columns={visaColumns} data={visaRisk} initialSorting={[{ id: 'daysLeft', desc: false }]} searchPlaceholder="Search employees or visa types…" />
+          </section>
 
-            <section className="glass-panel rounded-2xl border border-border/50 overflow-hidden">
-              <div className="px-5 py-4 border-b border-border/50 flex items-center justify-between">
+          <section className="glass-panel rounded-2xl border border-border/50 p-5 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
                 <h3 className="font-semibold flex items-center gap-2">
                   <AlertTriangle size={16} className="text-brand" /> Reminders
                 </h3>
-                <Link href="/hr/reports" className="text-xs text-brand hover:underline">Reports</Link>
+                <p className="text-xs text-muted-foreground mt-0.5">Open compliance reminders ({alerts.length})</p>
               </div>
-              <div className="divide-y divide-border/40">
-                {alerts.length === 0 && (
-                  <div className="px-5 py-8 text-sm text-muted-foreground text-center">
-                    No compliance reminders yet.
-                  </div>
-                )}
-                {alerts.map((a: any) => (
-                  <div key={a.id} className="px-5 py-3">
-                    <div className="font-medium text-sm">{a.title || a.message || a.type}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {formatDate(a.dueAt || a.createdAt)} · {a.severity || a.status || 'open'}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
+              <Link href="/hr/reports" className="text-xs text-brand hover:underline">Reports</Link>
+            </div>
+            <RichDataTable columns={reminderColumns} data={alerts} initialSorting={[{ id: 'date', desc: false }]} searchPlaceholder="Search reminders…" />
+          </section>
         </main>
       </div>
     </div>

@@ -181,6 +181,18 @@ export async function adminUpdateShipment(opts: {
   if (!shipment || shipment.organization.id !== opts.organizationId) {
     throw Object.assign(new Error('Shipment not found'), { status: 404 });
   }
+  if (opts.status && ['dispatched', 'in_transit', 'delivered'].includes(opts.status)) {
+    const carrier = (opts.carrier !== undefined ? opts.carrier : shipment.carrier)?.trim();
+    const tracking = (opts.trackingNumber !== undefined ? opts.trackingNumber : shipment.trackingNumber)?.trim();
+    if (!carrier || !tracking) {
+      throw Object.assign(
+        new Error(`Carrier and tracking number are required before marking a shipment ${opts.status.replace('_', ' ')}`),
+        { status: 400 }
+      );
+    }
+    opts.carrier = carrier;
+    opts.trackingNumber = tracking;
+  }
   if (opts.status) {
     shipment.status = opts.status;
     if (opts.status === 'dispatched' || opts.status === 'in_transit') {

@@ -76,7 +76,7 @@ export class BusinessUnitsController {
     const parsed = createBusinessUnitSchema.safeParse(req.body);
     
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: `Invalid payload: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, details: parsed.error.issues } });
       return;
     }
 
@@ -139,7 +139,7 @@ export class BusinessUnitsController {
     const parsed = updateBusinessUnitSchema.safeParse(req.body);
     
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: `Invalid payload: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, details: parsed.error.issues } });
       return;
     }
 

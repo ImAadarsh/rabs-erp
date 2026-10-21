@@ -11,8 +11,10 @@ import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
-import { Pencil, Trash2, Plus, X, Image as ImageIcon, Download, Eye } from 'lucide-react';
+import { Pencil, Trash2, Plus, X, Image as ImageIcon, Eye, Loader2 } from 'lucide-react';
+import { MediaThumb, MediaLink, isLegacyStorageUrl, LEGACY_STORAGE_MESSAGE } from '@/components/catalog/media-preview';
 
 type ProductMedia = {
   id: string;
@@ -38,6 +40,10 @@ export default function ProductMediaPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'SALES_REP']);
+  const { can } = useApiAccess();
+  const canCreate = can('POST', '/api/catalog/media');
+  const canUpdate = can('PATCH', '/api/catalog/media/:id');
+  const canDelete = can('DELETE', '/api/catalog/media/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<ProductMedia[]>([]);
   const [catalogItems, setCatalogItems] = useState<any[]>([]);
@@ -51,8 +57,9 @@ export default function ProductMediaPage() {
     position: '0',
     isPrimary: false
   });
-  const [mediaFile, setMediaFile] = useState<File | null>(null);
-  const [mediaPreview, setMediaPreview] = useState<string | null>(null);
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
+  const [mediaPreviews, setMediaPreviews] = useState<string[]>([]);
+  const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ProductMedia | null>(null);
   const [editForm, setEditForm] = useState({
     variantId: '',
@@ -97,85 +104,90 @@ export default function ProductMediaPage() {
     })();
   }, [hydrated, hasAccess, router, session?.accessToken, session?.user?.organizationId]);
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>, isEdit: boolean = false) {
-    const file = e.target.files?.[0];
-    if (file) {
-      const allowedTypes: Record<string, string[]> = {
-        image: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'],
-        video: ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'],
-        document: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
-        '3d_model': ['model/gltf-binary', 'model/gltf+json', 'application/octet-stream']
-      };
+  const ALLOWED_TYPES: Record<string, string[]> = {
+    image: ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'],
+    video: ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime'],
+    document: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    '3d_model': ['model/gltf-binary', 'model/gltf+json', 'application/octet-stream']
+  };
 
-      const mediaType = isEdit ? editForm.type : form.type;
-      const allowed = allowedTypes[mediaType] || ['*/*'];
-      
-      if (!allowed.includes(file.type) && !allowed.includes('*/*')) {
-        toast.error(`Invalid file type for ${mediaType}. Allowed: ${allowed.join(', ')}`);
-        return;
-      }
-
-      const maxSize = mediaType === 'video' ? 100 : mediaType === '3d_model' ? 50 : 10;
-      if (file.size > maxSize * 1024 * 1024) {
-        toast.error(`File size must be less than ${maxSize}MB`);
-        return;
-      }
-
-      if (isEdit) {
-        setEditMediaFile(file);
-        if (mediaType === 'image') {
-          const reader = new FileReader();
-          reader.onloadend = () => setEditMediaPreview(reader.result as string);
-          reader.readAsDataURL(file);
-        } else {
-          setEditMediaPreview(null);
-        }
-      } else {
-        setMediaFile(file);
-        if (mediaType === 'image') {
-          const reader = new FileReader();
-          reader.onloadend = () => setMediaPreview(reader.result as string);
-          reader.readAsDataURL(file);
-        } else {
-          setMediaPreview(null);
-        }
-      }
+  function validateFile(file: File, mediaType: string) {
+    const allowed = ALLOWED_TYPES[mediaType] || ['*/*'];
+    if (!allowed.includes(file.type) && !allowed.includes('*/*')) {
+      toast.error(`${file.name}: invalid file type for ${mediaType}. Allowed: ${allowed.join(', ')}`);
+      return false;
     }
+    const maxSize = mediaType === 'video' ? 100 : mediaType === '3d_model' ? 50 : 10;
+    if (file.size > maxSize * 1024 * 1024) {
+      toast.error(`${file.name}: file size must be less than ${maxSize}MB`);
+      return false;
+    }
+    return true;
+  }
+
+  function handleCreateFilesChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []).filter((f) => validateFile(f, form.type));
+    setMediaFiles(files);
+    setMediaPreviews(form.type === 'image' ? files.map((f) => URL.createObjectURL(f)) : []);
+  }
+
+  function resetCreate() {
+    setShowCreate(false);
+    setMediaFiles([]);
+    setMediaPreviews([]);
+  }
+
+  function handleEditFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !validateFile(file, editForm.type)) return;
+    setEditMediaFile(file);
+    setEditMediaPreview(editForm.type === 'image' ? URL.createObjectURL(file) : null);
   }
 
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!session) return;
-    if (!form.catalogItemId || !form.type || !mediaFile) {
+    if (!form.catalogItemId || !form.type || mediaFiles.length === 0) {
       toast.error('Please fill in required fields (Catalog Item, Type, File)');
       return;
     }
-    try {
-      const res = await createProductMedia({
-        catalogItemId: form.catalogItemId,
-        variantId: form.variantId || undefined,
-        type: form.type,
-        altText: form.altText || undefined,
-        position: parseInt(form.position) || 0,
-        isPrimary: form.isPrimary
-      }, mediaFile);
-      
-      setItems([res.data, ...items]);
-      setShowCreate(false);
-      setForm({ 
-        catalogItemId: '',
-        variantId: '',
-        type: 'image',
-        altText: '',
-        position: '0',
-        isPrimary: false
-      });
-      setMediaFile(null);
-      setMediaPreview(null);
-      toast.success('Product media created');
-    } catch (e: any) {
-      toast.error(e?.response?.data?.error?.message ?? 'Create failed');
+    setCreating(true);
+    const created: ProductMedia[] = [];
+    const failed: string[] = [];
+    const basePosition = parseInt(form.position) || 0;
+    for (const [i, file] of mediaFiles.entries()) {
+      try {
+        const res = await createProductMedia({
+          catalogItemId: form.catalogItemId,
+          variantId: form.variantId || undefined,
+          type: form.type,
+          altText: form.altText || undefined,
+          position: basePosition + i,
+          isPrimary: form.isPrimary && i === 0
+        }, file);
+        created.push(res.data);
+      } catch (err: any) {
+        failed.push(`${file.name}: ${err?.response?.data?.error?.message ?? 'upload failed'}`);
+      }
     }
+    setCreating(false);
+    if (created.length) {
+      setItems(prev => [...created, ...prev]);
+      toast.success(created.length === 1 ? 'Product media created' : `${created.length} media files added`);
+    }
+    if (failed.length) {
+      toast.error(failed.join('\n'));
+      return;
+    }
+    resetCreate();
+    setForm({
+      catalogItemId: '',
+      variantId: '',
+      type: 'image',
+      altText: '',
+      position: '0',
+      isPrimary: false
+    });
   }
 
   async function onUpdate(e: React.FormEvent) {
@@ -219,15 +231,7 @@ export default function ProductMediaPage() {
       cell: ({ row }) => {
         const media = row.original;
         if (media.type === 'image') {
-          return (
-            <div className="w-16 h-16 relative rounded overflow-hidden border border-border">
-              <img 
-                src={media.url} 
-                alt={media.altText || 'Product media'} 
-                className="w-full h-full object-cover"
-              />
-            </div>
-          );
+          return <MediaThumb url={media.url} alt={media.altText || 'Product media'} className="w-16 h-16" />;
         } else {
           return (
             <div className="w-16 h-16 flex items-center justify-center bg-muted rounded">
@@ -288,7 +292,11 @@ export default function ProductMediaPage() {
         const item = row.original;
         return (
           <div className="flex items-center gap-2">
-            {item.url && (
+            {item.url && (isLegacyStorageUrl(item.url) ? (
+              <span className="p-1 text-amber-600 cursor-not-allowed" title={`${LEGACY_STORAGE_MESSAGE} — re-upload via Edit`}>
+                <Eye className="h-4 w-4 opacity-40" />
+              </span>
+            ) : (
               <a
                 href={item.url}
                 target="_blank"
@@ -298,7 +306,8 @@ export default function ProductMediaPage() {
               >
                 <Eye className="h-4 w-4" />
               </a>
-            )}
+            ))}
+            {canUpdate && (
             <button
               onClick={() => {
                 setEditing(item);
@@ -310,13 +319,15 @@ export default function ProductMediaPage() {
                   isPrimary: item.isPrimary
                 });
                 setEditMediaFile(null);
-                setEditMediaPreview(item.type === 'image' ? item.url : null);
+                setEditMediaPreview(null);
               }}
               className="p-1 hover:bg-gray-100 rounded"
               title="Edit"
             >
               <Pencil className="h-4 w-4" />
             </button>
+            )}
+            {canDelete && (
             <button
               onClick={() => setConfirmDel(item)}
               className="p-1 hover:bg-gray-100 rounded text-red-600"
@@ -324,11 +335,12 @@ export default function ProductMediaPage() {
             >
               <Trash2 className="h-4 w-4" />
             </button>
+            )}
           </div>
         );
       },
     },
-  ], []);
+  ], [canUpdate, canDelete]);
 
   if (!hydrated || loading) {
     return (
@@ -380,6 +392,7 @@ export default function ProductMediaPage() {
                 </h1>
                 <p className="text-muted-foreground mt-1">Manage product images, videos, documents, and 3D models</p>
               </div>
+              {canCreate && (
               <button
                 onClick={() => setShowCreate(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-brand text-white rounded hover:bg-brand-600"
@@ -387,6 +400,7 @@ export default function ProductMediaPage() {
                 <Plus className="h-4 w-4" />
                 Add Media
               </button>
+              )}
             </div>
 
             <RichDataTable columns={columns} data={items} />
@@ -396,11 +410,7 @@ export default function ProductMediaPage() {
                 <div className="w-full max-w-2xl rounded-2xl bg-card shadow-2xl border border-border p-6 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-semibold">Create Product Media</h3>
-                    <button onClick={() => {
-                      setShowCreate(false);
-                      setMediaFile(null);
-                      setMediaPreview(null);
-                    }} className="p-1 hover:bg-muted rounded-lg transition-colors">
+                    <button onClick={resetCreate} className="p-1 hover:bg-muted rounded-lg transition-colors">
                       <X className="h-5 w-5" />
                     </button>
                   </div>
@@ -440,8 +450,8 @@ export default function ProductMediaPage() {
                           value={form.type}
                           onChange={e => {
                             setForm(prev => ({ ...prev, type: e.target.value as any }));
-                            setMediaFile(null);
-                            setMediaPreview(null);
+                            setMediaFiles([]);
+                            setMediaPreviews([]);
                           }}
                           className="select"
                           required
@@ -484,20 +494,26 @@ export default function ProductMediaPage() {
                         </label>
                       </div>
                       <div className="col-span-2">
-                        <label className="block text-sm font-medium mb-1.5">Media File *</label>
+                        <label className="block text-sm font-medium mb-1.5">Media Files * <span className="text-xs font-normal text-muted-foreground">(select one or more)</span></label>
                         <input
                           type="file"
+                          multiple
                           accept={form.type === 'image' ? 'image/*' : form.type === 'video' ? 'video/*' : form.type === 'document' ? '.pdf,.doc,.docx' : '*'}
-                          onChange={(e) => handleFileChange(e, false)}
+                          onChange={handleCreateFilesChange}
                           className="input"
                           required
                         />
-                        {mediaFile && (
-                          <p className="text-xs text-muted-foreground mt-1">Selected: {mediaFile.name} ({(mediaFile.size / 1024 / 1024).toFixed(2)} MB)</p>
+                        {mediaFiles.length > 0 && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {mediaFiles.length} file(s) selected: {mediaFiles.map(f => f.name).join(', ')}
+                          </p>
                         )}
-                        {mediaPreview && (
-                          <div className="mt-2 w-full max-w-xs">
-                            <img src={mediaPreview} alt="Preview" className="w-full h-auto rounded border border-border" />
+                        {mediaPreviews.length > 0 && (
+                          <div className="mt-2 grid grid-cols-4 gap-2">
+                            {mediaPreviews.map((src, i) => (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img key={src} src={src} alt={`Preview ${i + 1}`} className="w-full aspect-square object-cover rounded border border-border" />
+                            ))}
                           </div>
                         )}
                       </div>
@@ -505,20 +521,18 @@ export default function ProductMediaPage() {
                     <div className="flex justify-end gap-3 pt-4 border-t border-border">
                       <button
                         type="button"
-                        onClick={() => {
-                          setShowCreate(false);
-                          setMediaFile(null);
-                          setMediaPreview(null);
-                        }}
+                        onClick={resetCreate}
                         className="btn btn-outline"
                       >
                         Cancel
                       </button>
                       <button
                         type="submit"
-                        className="btn btn-primary"
+                        disabled={creating}
+                        className="btn btn-primary inline-flex items-center gap-2"
                       >
-                        Create
+                        {creating && <Loader2 className="h-4 w-4 animate-spin" />}
+                        {mediaFiles.length > 1 ? `Upload ${mediaFiles.length} files` : 'Create'}
                       </button>
                     </div>
                   </form>
@@ -608,25 +622,28 @@ export default function ProductMediaPage() {
                         <input
                           type="file"
                           accept={editForm.type === 'image' ? 'image/*' : editForm.type === 'video' ? 'video/*' : editForm.type === 'document' ? '.pdf,.doc,.docx' : '*'}
-                          onChange={(e) => handleFileChange(e, true)}
+                          onChange={handleEditFileChange}
                           className="input"
                         />
                         {editMediaFile && (
                           <p className="text-xs text-muted-foreground mt-1">New file: {editMediaFile.name} ({(editMediaFile.size / 1024 / 1024).toFixed(2)} MB)</p>
                         )}
                         {editMediaPreview && (
-                          <div className="mt-2 w-full max-w-xs">
-                            <img src={editMediaPreview} alt="Preview" className="w-full h-auto rounded border border-border" />
+                          <div className="mt-2">
+                            <MediaThumb url={editMediaPreview} alt="Preview" className="w-40 h-40" />
                           </div>
                         )}
                         {editing.url && !editMediaFile && editForm.type === 'image' && (
-                          <div className="mt-2 w-full max-w-xs">
+                          <div className="mt-2">
                             <p className="text-xs text-muted-foreground mb-1">Current file:</p>
-                            <img src={editing.url} alt={editing.altText || 'Current media'} className="w-full h-auto rounded border border-border" />
+                            <MediaThumb url={editing.url} alt={editing.altText || 'Current media'} className="w-40 h-40" />
+                            {isLegacyStorageUrl(editing.url) && (
+                              <p className="text-xs text-amber-700 mt-1">{LEGACY_STORAGE_MESSAGE} — choose a new file above to replace it.</p>
+                            )}
                           </div>
                         )}
                         {editing.url && !editMediaFile && editForm.type !== 'image' && (
-                          <p className="text-xs text-muted-foreground mt-1">Current file: <a href={editing.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">View</a></p>
+                          <p className="text-xs text-muted-foreground mt-1">Current file: <MediaLink url={editing.url} className="text-primary hover:underline">View</MediaLink></p>
                         )}
                       </div>
                     </div>

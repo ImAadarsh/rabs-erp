@@ -46,7 +46,12 @@ export class SocialAccountController {
       }
       qb.orderBy('account.createdAt', 'DESC');
       const items = await qb.getMany();
-      res.json({ data: items.map((a) => sanitizeSocialAccount(a as any)) });
+      res.json({
+        data: items.map((a) => ({
+          ...sanitizeSocialAccount(a as any),
+          needsReconnect: Boolean((a.metadata as Record<string, unknown> | undefined)?.needsReconnect)
+        }))
+      });
     } catch (error: any) {
       res.status(500).json({ error: { message: error.message } });
     }

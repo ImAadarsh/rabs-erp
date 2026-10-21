@@ -12,8 +12,10 @@ import {
     SortingState,
     ColumnFiltersState,
     VisibilityState,
+    PaginationState,
     FilterFn,
 } from '@tanstack/react-table';
+import { usePathname } from 'next/navigation';
 import {
     ChevronDown,
     ChevronUp,
@@ -26,6 +28,7 @@ import {
     ChevronsRight,
 } from 'lucide-react';
 
+// Custom filter function for fuzzy search
 function filterText(value: unknown): string {
     if (value == null) return '';
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
@@ -70,17 +73,108 @@ function DebouncedInput({
         setValue(initialValue);
     }, [initialValue]);
 
+    // Only emit real edits: re-emitting an unchanged value (every parent re-render passes a new
+    // onChange) made column filters produce a fresh [] and bounced the table back to page 1.
     React.useEffect(() => {
+        if (value === initialValue) return;
         const timeout = setTimeout(() => {
             onChange(value);
         }, debounce);
 
         return () => clearTimeout(timeout);
-    }, [value, debounce, onChange]);
+    }, [value, initialValue, debounce, onChange]);
 
     return (
         <input {...props} value={value} onChange={(e) => setValue(e.target.value)} />
     );
+}
+
+// `.btn` is declared outside @layer components, so its px-4/h-10 beat plain utilities; force sizing.
+const pagerBtn =
+    'btn btn-outline !h-8 !w-8 !p-0 !rounded-lg shrink-0 disabled:opacity-30';
+
+/** Page indices to render, with -1 marking an ellipsis gap. */
+function pageWindow(current: number, count: number): number[] {
+    if (count <= 7) return Array.from({ length: count }, (_, i) => i);
+    const pages = new Set<number>([0, count - 1, current - 1, current, current + 1]);
+    const sorted = Array.from(pages).filter((p) => p >= 0 && p < count).sort((a, b) => a - b);
+    const out: number[] = [];
+    sorted.forEach((p, i) => {
+        if (i > 0 && p - sorted[i - 1] > 1) out.push(-1);
+        out.push(p);
+    });
+    return out;
+}
+
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? React.useLayoutEffect : React.useEffect;
+
+type PersistedTableState = {
+    pagination: PaginationState;
+    sorting: SortingState;
+    columnFilters: ColumnFiltersState;
+    globalFilter: string;
+    columnVisibility: VisibilityState;
+};
+
+function readTableState(key: string): Partial<PersistedTableState> | null {
+    try {
+        const raw = window.sessionStorage.getItem(key);
+        return raw ? (JSON.parse(raw) as Partial<PersistedTableState>) : null;
+    } catch {
+        return null;
+    }
+}
+
+function writeTableState(key: string, state: PersistedTableState) {
+    try {
+        window.sessionStorage.setItem(key, JSON.stringify(state));
+    } catch {
+        // storage full / disabled: persistence is best-effort
+    }
+}
+
+/** Same id resolution as TanStack: id, else accessorKey (dots -> underscores), else a string header. */
+function columnIdOf(c: any): string {
+    if (c.id) return String(c.id);
+    if (c.accessorKey) return String(c.accessorKey).replace(/\./g, '_');
+    return typeof c.header === 'string' ? c.header : '';
+}
+
+function columnSignature(columns: ColumnDef<any, any>[]): string {
+    return columns.map(columnIdOf).join('|');
+}
+
+/** Field used for the implicit newest-first order: createdAt, else id, else a date-like field. */
+function detectDefaultSortField(rows: unknown[]): string | null {
+    const sample = rows.find((r) => r && typeof r === 'object') as Record<string, unknown> | undefined;
+    if (!sample) return null;
+    // Rows carrying an explicit display order are already meaningfully ordered.
+    if ('position' in sample || 'sortOrder' in sample) return null;
+    for (const f of ['createdAt', 'created_at', 'id']) if (f in sample) return f;
+    return Object.keys(sample).find((k) => /(Date|date|At|_at)$/.test(k) && typeof sortValue(sample[k]) === 'number') ?? null;
+}
+
+function sortValue(v: unknown): number | string | null {
+    if (v == null || v === '') return null;
+    if (typeof v === 'number') return v;
+    if (v instanceof Date) return v.getTime();
+    const s = String(v);
+    if (/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+        const t = Date.parse(s);
+        if (!Number.isNaN(t)) return t;
+    }
+    return s;
+}
+
+function compareDesc(a: unknown, b: unknown): number {
+    const va = sortValue(a);
+    const vb = sortValue(b);
+    if (va === null && vb === null) return 0;
+    if (va === null) return 1;
+    if (vb === null) return -1;
+    if (typeof va === 'number' && typeof vb === 'number') return vb - va;
+    return String(vb).localeCompare(String(va), undefined, { numeric: true });
 }
 
 interface RichDataTableProps<TData, TValue> {
@@ -89,6 +183,12 @@ interface RichDataTableProps<TData, TValue> {
     searchPlaceholder?: string;
     /** Hide the built-in search box when the page already provides one. */
     hideSearch?: boolean;
+    /** Explicit initial sort; when omitted rows default to newest first (createdAt, else id, else a date field). */
+    initialSorting?: SortingState;
+    /** Set false to keep the data's own order instead of the implicit newest-first order. */
+    defaultSort?: boolean;
+    /** Distinguishes several tables with identical columns on one page (state is persisted per pathname). */
+    tableId?: string;
 }
 
 export function RichDataTable<TData, TValue>({
@@ -96,16 +196,62 @@ export function RichDataTable<TData, TValue>({
     data,
     searchPlaceholder = 'Search...',
     hideSearch = false,
+    initialSorting,
+    defaultSort = true,
+    tableId,
 }: RichDataTableProps<TData, TValue>) {
-    const [sorting, setSorting] = useState<SortingState>([]);
+    const pathname = usePathname();
+    const [sorting, setSorting] = useState<SortingState>(initialSorting ?? []);
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
     const [globalFilter, setGlobalFilter] = useState('');
     const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+    const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
     const [rowSelection, setRowSelection] = useState({});
     const [showColumnVisibility, setShowColumnVisibility] = useState(false);
 
+    // Page, size, sort and filters survive refetches, remounts (modal close, loading swaps)
+    // and Back navigation: they are kept per table in sessionStorage, keyed by pathname.
+    const storageKey = `rdt:${pathname ?? ''}:${tableId ?? columnSignature(columns as ColumnDef<any, any>[])}`;
+    const [restoredKey, setRestoredKey] = useState<string | null>(null);
+    const restored = restoredKey === storageKey;
+    const prevFilterKey = React.useRef<string | null>(null);
+
+    useIsomorphicLayoutEffect(() => {
+        const saved = readTableState(storageKey);
+        if (saved) {
+            const ids = new Set((columns as ColumnDef<any, any>[]).map(columnIdOf));
+            const known = <T extends { id: string }>(list: T[] | undefined) =>
+                Array.isArray(list) ? list.filter((s) => ids.has(s.id)) : [];
+            setPagination({
+                pageIndex: Math.max(0, Number(saved.pagination?.pageIndex) || 0),
+                pageSize: Number(saved.pagination?.pageSize) || 10,
+            });
+            setSorting(saved.sorting ? known(saved.sorting) : initialSorting ?? []);
+            setColumnFilters(known(saved.columnFilters));
+            setGlobalFilter(typeof saved.globalFilter === 'string' ? saved.globalFilter : '');
+            setColumnVisibility(saved.columnVisibility && typeof saved.columnVisibility === 'object' ? saved.columnVisibility : {});
+        }
+        prevFilterKey.current = null;
+        setRestoredKey(storageKey);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [storageKey]);
+
+    React.useEffect(() => {
+        if (!restored) return;
+        writeTableState(storageKey, { pagination, sorting, columnFilters, globalFilter, columnVisibility });
+    }, [restored, storageKey, pagination, sorting, columnFilters, globalFilter, columnVisibility]);
+
+    const defaultSortField = React.useMemo(
+        () => (initialSorting || !defaultSort ? null : detectDefaultSortField(data as unknown[])),
+        [data, initialSorting, defaultSort]
+    );
+    const rows = React.useMemo(() => {
+        if (!defaultSortField) return data;
+        return [...data].sort((a: any, b: any) => compareDesc(a?.[defaultSortField], b?.[defaultSortField]));
+    }, [data, defaultSortField]);
+
     const table = useReactTable({
-        data,
+        data: rows,
         columns,
         filterFns: {
             fuzzy: fuzzyFilter,
@@ -118,12 +264,14 @@ export function RichDataTable<TData, TValue>({
             columnFilters,
             globalFilter,
             columnVisibility,
+            pagination,
             rowSelection,
         },
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters,
         onGlobalFilterChange: setGlobalFilter,
         onColumnVisibilityChange: setColumnVisibility,
+        onPaginationChange: setPagination,
         onRowSelectionChange: setRowSelection,
         getCoreRowModel: getCoreRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
@@ -131,6 +279,24 @@ export function RichDataTable<TData, TValue>({
         getPaginationRowModel: getPaginationRowModel(),
         globalFilterFn: fuzzyFilter,
     });
+
+    const pageCount = table.getPageCount();
+    const pageIndex = pagination.pageIndex;
+    const totalRows = table.getFilteredRowModel().rows.length;
+    const pageSize = pagination.pageSize;
+
+    // Clamp when the data shrinks (e.g. after a delete); an empty table while loading keeps the page.
+    React.useEffect(() => {
+        if (pageCount > 0 && pageIndex > pageCount - 1) table.setPageIndex(pageCount - 1);
+    }, [pageCount, pageIndex, table]);
+
+    // Back to page 1 only when the search / column filter text really changes.
+    const filterKey = JSON.stringify([globalFilter, columnFilters]);
+    React.useEffect(() => {
+        if (!restored) return;
+        if (prevFilterKey.current !== null && prevFilterKey.current !== filterKey) table.setPageIndex(0);
+        prevFilterKey.current = filterKey;
+    }, [filterKey, restored, table]);
 
     return (
         <div className="space-y-4 w-full animate-in fade-in duration-500">

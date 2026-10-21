@@ -4,6 +4,7 @@
  */
 
 import type { WordPressApiCredentials } from './wordpressApiImport.js';
+import { wooApiError } from './wooApiError.js';
 
 function normalizeUrl(url: string): string {
   return url.trim().replace(/\/$/, '');
@@ -30,7 +31,7 @@ async function wcFetch<T>(
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`WooCommerce API error (${res.status}) ${method} ${path}: ${text.slice(0, 300)}`);
+    throw wooApiError(`WooCommerce API error ${method} ${path}`, res.status, text);
   }
   return res.json() as Promise<T>;
 }
@@ -47,7 +48,19 @@ export interface ExportVariant {
   option1Value?: string;
   option2Name?: string;
   option2Value?: string;
+  option3Name?: string;
+  option3Value?: string;
   status: 'active' | 'inactive' | 'discontinued';
+}
+
+/** Objects in the retired S3 bucket return 403, which makes WooCommerce reject the whole product. */
+function isReachableImage(src?: string | null): src is string {
+  if (!src) return false;
+  try {
+    return !new URL(src).hostname.endsWith('amazonaws.com');
+  } catch {
+    return false;
+  }
 }
 
 export interface ExportItem {
@@ -97,8 +110,8 @@ function toWcStatus(status: string): string {
 function buildWcProductPayload(item: ExportItem): Record<string, unknown> {
   const isVariable = item.variants.length > 1;
 
-  const images = (item.imageUrls ?? []).map((src, i) => ({ src, position: i + 1 }));
-  if (!images.length && item.variants[0]?.imageUrl) {
+  const images = (item.imageUrls ?? []).filter(isReachableImage).map((src, i) => ({ src, position: i + 1 }));
+  if (!images.length && isReachableImage(item.variants[0]?.imageUrl)) {
     images.push({ src: item.variants[0].imageUrl, position: 1 });
   }
 
@@ -137,6 +150,7 @@ function buildWcProductPayload(item: ExportItem): Record<string, unknown> {
     for (const v of item.variants) {
       if (v.option1Name) attrNames.add(v.option1Name);
       if (v.option2Name) attrNames.add(v.option2Name);
+      if (v.option3Name) attrNames.add(v.option3Name);
     }
     payload.attributes = Array.from(attrNames).map((name) => ({
       name,
@@ -147,6 +161,7 @@ function buildWcProductPayload(item: ExportItem): Record<string, unknown> {
           const vals: string[] = [];
           if (v.option1Name === name && v.option1Value) vals.push(v.option1Value);
           if (v.option2Name === name && v.option2Value) vals.push(v.option2Value);
+          if (v.option3Name === name && v.option3Value) vals.push(v.option3Value);
           return vals;
         })
       )]
@@ -160,6 +175,7 @@ function buildWcVariationPayload(v: ExportVariant): Record<string, unknown> {
   const attrs: Array<{ name: string; option: string }> = [];
   if (v.option1Name && v.option1Value) attrs.push({ name: v.option1Name, option: v.option1Value });
   if (v.option2Name && v.option2Value) attrs.push({ name: v.option2Name, option: v.option2Value });
+  if (v.option3Name && v.option3Value) attrs.push({ name: v.option3Name, option: v.option3Value });
 
   const payload: Record<string, unknown> = {
     sku: v.sku,
@@ -168,7 +184,7 @@ function buildWcVariationPayload(v: ExportVariant): Record<string, unknown> {
     attributes: attrs
   };
 
-  if (v.imageUrl) payload.image = { src: v.imageUrl };
+  if (isReachableImage(v.imageUrl)) payload.image = { src: v.imageUrl };
   if (v.inventoryQty != null) {
     payload.manage_stock = true;
     payload.stock_quantity = v.inventoryQty;

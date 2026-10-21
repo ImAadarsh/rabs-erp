@@ -30,6 +30,7 @@ import {
   AccExpensesController
 } from '@controllers/finance/accPurchases.controller.js';
 import { AccBankingController } from '@controllers/finance/accBanking.controller.js';
+import { AccDocumentsController } from '@controllers/finance/accDocuments.controller.js';
 import {
   AccFixedAssetsController,
   AccCtController
@@ -73,6 +74,7 @@ financeRouter.patch('/chart-of-accounts/:id', requireRoles(...write), ChartOfAcc
 financeRouter.delete('/chart-of-accounts/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), ChartOfAccountsController.remove);
 
 financeRouter.get('/ledger-accounts', requireRoles(...read), LedgerAccountsController.list);
+financeRouter.get('/ledger-accounts/types', requireRoles(...read), LedgerAccountsController.types);
 financeRouter.get('/ledger-accounts/:id', requireRoles(...read), LedgerAccountsController.get);
 financeRouter.post('/ledger-accounts', requireRoles(...write), LedgerAccountsController.create);
 financeRouter.patch('/ledger-accounts/:id', requireRoles(...write), LedgerAccountsController.update);
@@ -96,6 +98,7 @@ financeRouter.get('/journal-entries/:id', requireRoles(...read), JournalEntriesC
 financeRouter.post('/journal-entries', requireRoles(...write), JournalEntriesController.create);
 financeRouter.patch('/journal-entries/:id', requireRoles(...write), JournalEntriesController.update);
 financeRouter.post('/journal-entries/:id/post', requireRoles(...write), AccPostingController.postJournal);
+financeRouter.post('/journal-entries/:id/reverse', requireRoles(...write), JournalEntriesController.reverse);
 financeRouter.delete('/journal-entries/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), JournalEntriesController.remove);
 
 // ——— Banking ———
@@ -103,7 +106,7 @@ financeRouter.get('/bank-accounts', requireRoles(...read), BankAccountsControlle
 financeRouter.get('/bank-accounts/:id', requireRoles(...read), BankAccountsController.get);
 financeRouter.post('/bank-accounts', requireRoles(...write), BankAccountsController.create);
 financeRouter.patch('/bank-accounts/:id', requireRoles(...write), BankAccountsController.update);
-financeRouter.delete('/bank-accounts/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), BankAccountsController.remove);
+financeRouter.delete('/bank-accounts/:id', requireRoles(...write), BankAccountsController.remove);
 
 financeRouter.get('/bank-transactions', requireRoles(...read), BankTransactionsController.list);
 financeRouter.get('/bank-transactions/:id', requireRoles(...read), BankTransactionsController.get);
@@ -128,7 +131,7 @@ financeRouter.post('/vat-returns', requireRoles(...write), VatReturnsController.
 financeRouter.patch('/vat-returns/:id', requireRoles(...write), VatReturnsController.update);
 financeRouter.get('/vat-returns/:id/export', requireRoles(...read), AccReportsController.vatExport);
 financeRouter.post('/vat-returns/:id/submit-mtd', requireRoles(...write), AccReportsController.vatSubmitPlaceholder);
-financeRouter.delete('/vat-returns/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), VatReturnsController.remove);
+financeRouter.delete('/vat-returns/:id', requireRoles(...write), VatReturnsController.remove);
 
 financeRouter.get('/budget-lines', requireRoles(...read), BudgetLinesController.list);
 financeRouter.get('/budget-lines/:id', requireRoles(...read), BudgetLinesController.get);
@@ -155,6 +158,8 @@ financeRouter.delete('/payments/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), Paym
 financeRouter.get('/invoices', requireRoles(...read), InvoiceController.list);
 financeRouter.get('/invoices/uninvoiced-orders', requireRoles(...read), InvoiceController.uninvoicedOrders);
 financeRouter.post('/invoices/generate', requireRoles(...write), InvoiceController.generate);
+financeRouter.get('/invoices/letterhead', requireRoles(...read), InvoiceController.getLetterhead);
+financeRouter.put('/invoices/letterhead', requireRoles('ADMIN', 'SUPER_ADMIN', 'FINANCE'), InvoiceController.saveLetterhead);
 financeRouter.post('/invoices/uk', requireRoles(...write), AccSalesController.createInvoice);
 financeRouter.post('/invoices/payments', requireRoles(...write), AccSalesController.recordPayment);
 financeRouter.post('/invoices/:id/post', requireRoles(...write), AccPostingController.postInvoice);
@@ -182,10 +187,16 @@ financeRouter.get('/suppliers/:supplierId/statement', requireRoles(...read), Acc
 
 // ——— Expenses ———
 financeRouter.get('/expenses', requireRoles(...read), AccExpensesController.list);
+financeRouter.get('/expenses/employees', requireRoles(...read), AccExpensesController.employees);
 financeRouter.post('/expenses', requireRoles(...write), AccExpensesController.create);
 financeRouter.post('/expenses/:id/submit', requireRoles(...write), AccExpensesController.submit);
 financeRouter.post('/expenses/:id/approve', requireRoles(...write), AccExpensesController.approve);
 financeRouter.post('/expenses/:id/reject', requireRoles(...write), AccExpensesController.reject);
+
+// ——— Documents (links stored on the entity + append-only audit trail) ———
+financeRouter.get('/documents', requireRoles(...read), AccDocumentsController.list);
+financeRouter.get('/documents/:id', requireRoles(...read), AccDocumentsController.get);
+financeRouter.post('/documents', requireRoles(...write), AccDocumentsController.create);
 
 // ——— Fixed assets ———
 financeRouter.get('/fixed-assets', requireRoles(...read), AccFixedAssetsController.list);

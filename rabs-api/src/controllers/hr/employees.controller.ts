@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { AppDataSource } from '@config/data-source.js';
 import { Employee } from '@entities/hr/Employee.js';
 import { z } from 'zod';
+import { zodMessage } from '@services/finance/zodMessage.js';
 import { Organization } from '@entities/iam/Organization.js';
 import { User } from '@entities/iam/User.js';
 import { IsNull } from 'typeorm';
@@ -141,7 +142,7 @@ export class EmployeesController {
     try {
       const parsed = createEmployeeSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 
@@ -220,7 +221,7 @@ export class EmployeesController {
       const parsed = updateEmployeeSchema.safeParse(req.body);
       
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 

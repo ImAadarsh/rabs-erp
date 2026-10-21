@@ -51,6 +51,9 @@ export const hrRouter = Router();
 const staff = [...HR_STAFF_ROLES];
 const write = [...HR_WRITE_ROLES, 'HR_MANAGER'] as const;
 const payroll = [...HR_PAYROLL_ROLES];
+/** Finance reads HR reports and the employee list for payroll; Accountant reads payroll runs for journals. */
+const staffRead = [...HR_STAFF_ROLES, 'FINANCE'];
+const payrollRead = [...HR_PAYROLL_ROLES, 'ACCOUNTANT'];
 
 hrRouter.use(authMiddleware);
 hrRouter.use(auditMiddleware);
@@ -70,13 +73,13 @@ hrRouter.get('/me/immigration', MeController.immigration);
 hrRouter.get('/me/onboarding', MeController.onboarding);
 
 // ——— Compliance & reports ———
-hrRouter.get('/compliance/visa-expiring', requireRoles(...staff), ComplianceController.visaExpiring);
-hrRouter.get('/compliance/alerts', requireRoles(...staff), ComplianceController.listAlerts);
+hrRouter.get('/compliance/visa-expiring', requireRoles(...staffRead), ComplianceController.visaExpiring);
+hrRouter.get('/compliance/alerts', requireRoles(...staffRead), ComplianceController.listAlerts);
 hrRouter.patch('/compliance/alerts/:id', requireRoles(...write), ComplianceController.updateAlert);
-hrRouter.get('/reports/summary', requireRoles(...staff), HrReportsController.summary);
+hrRouter.get('/reports/summary', requireRoles(...staffRead), HrReportsController.summary);
 
 // ——— Employees (legacy + UK fields) ———
-hrRouter.get('/employees', requireRoles(...staff), EmployeesController.list);
+hrRouter.get('/employees', requireRoles(...staffRead), EmployeesController.list);
 hrRouter.get('/employees/:id', requireRoles(...staff), EmployeesController.get);
 hrRouter.post('/employees', requireRoles(...write), EmployeesController.create);
 hrRouter.patch('/employees/:id', requireRoles(...write), EmployeesController.update);
@@ -115,6 +118,7 @@ hrRouter.patch('/leave-policies/:id', requireRoles(...write), LeavePoliciesContr
 hrRouter.delete('/leave-policies/:id', requireRoles(...HR_WRITE_ROLES), LeavePoliciesController.remove);
 
 hrRouter.get('/leave-balances', requireRoles(...staff), LeaveBalancesController.list);
+hrRouter.get('/leave/balances', requireRoles(...staff), LeaveBalancesController.list);
 hrRouter.post('/leave-balances', requireRoles(...write), LeaveBalancesController.upsert);
 hrRouter.put('/leave-balances', requireRoles(...write), LeaveBalancesController.upsert);
 
@@ -173,8 +177,8 @@ hrRouter.post('/shifts', requireRoles(...staff), ShiftsController.create);
 hrRouter.patch('/shifts/:id', requireRoles(...staff), ShiftsController.update);
 hrRouter.delete('/shifts/:id', requireRoles(...HR_WRITE_ROLES), ShiftsController.remove);
 
-hrRouter.get('/payroll-runs', requireRoles(...payroll), PayrollRunsController.list);
-hrRouter.get('/payroll-runs/:id', requireRoles(...payroll), PayrollRunsController.get);
+hrRouter.get('/payroll-runs', requireRoles(...payrollRead), PayrollRunsController.list);
+hrRouter.get('/payroll-runs/:id', requireRoles(...payrollRead), PayrollRunsController.get);
 hrRouter.post('/payroll-runs', requireRoles(...HR_WRITE_ROLES), PayrollRunsController.create);
 hrRouter.patch('/payroll-runs/:id', requireRoles(...HR_WRITE_ROLES), PayrollRunsController.update);
 hrRouter.post('/payroll-runs/:id/calculate', requireRoles(...write), PayrollCalcController.calculate);

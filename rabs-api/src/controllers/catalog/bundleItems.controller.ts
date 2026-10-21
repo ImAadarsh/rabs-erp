@@ -4,6 +4,7 @@ import { BundleItem } from '@entities/catalog/BundleItem.js';
 import { Bundle } from '@entities/catalog/Bundle.js';
 import { Variant } from '@entities/catalog/Variant.js';
 import { z } from 'zod';
+import { zodMessage } from '@services/catalog/zodMessage.js';
 
 const createBundleItemSchema = z.object({
   bundleId: z.string(),
@@ -18,6 +19,12 @@ const updateBundleItemSchema = z.object({
   position: z.number().int().optional()
 });
 
+function sameOrganization(variant: Variant, bundle: Bundle): boolean {
+  const a = variant.catalogItem?.organization?.id;
+  const b = bundle.catalogItem?.organization?.id;
+  return !a || !b || String(a) === String(b);
+}
+
 export class BundleItemsController {
   static async list(req: Request, res: Response): Promise<void> {
     const repo = AppDataSource.getRepository(BundleItem);
@@ -26,6 +33,7 @@ export class BundleItemsController {
     const queryBuilder = repo.createQueryBuilder('bi')
       .leftJoinAndSelect('bi.bundle', 'b')
       .leftJoinAndSelect('bi.variant', 'v')
+      .leftJoinAndSelect('v.catalogItem', 'ci')
       .orderBy('bi.position', 'ASC')
       .addOrderBy('bi.createdAt', 'DESC');
 
@@ -59,12 +67,15 @@ export class BundleItemsController {
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createBundleItemSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
     const bundleRepo = AppDataSource.getRepository(Bundle);
-    const bundle = await bundleRepo.findOne({ where: { id: parsed.data.bundleId } });
+    const bundle = await bundleRepo.findOne({
+      where: { id: parsed.data.bundleId },
+      relations: ['catalogItem', 'catalogItem.organization']
+    });
     
     if (!bundle) {
       res.status(400).json({ error: { message: 'Invalid bundleId' } });
@@ -74,7 +85,7 @@ export class BundleItemsController {
     const variantRepo = AppDataSource.getRepository(Variant);
     const variant = await variantRepo.findOne({ 
       where: { id: parsed.data.variantId },
-      relations: ['catalogItem']
+      relations: ['catalogItem', 'catalogItem.organization']
     });
     
     if (!variant) {
@@ -82,13 +93,21 @@ export class BundleItemsController {
       return;
     }
 
-    // Check if variant belongs to same catalog item as bundle
-    if (variant.catalogItem.id !== bundle.catalogItem.id) {
-      res.status(400).json({ error: { message: 'Variant does not belong to the same catalog item as bundle' } });
+    // A bundle groups variants of other products, so only the organisation has to match.
+    if (!sameOrganization(variant, bundle)) {
+      res.status(400).json({ error: { message: 'Variant belongs to a different organisation than the bundle' } });
       return;
     }
 
     const repo = AppDataSource.getRepository(BundleItem);
+    const duplicate = await repo.findOne({
+      where: { bundle: { id: bundle.id }, variant: { id: variant.id } }
+    });
+    if (duplicate) {
+      res.status(409).json({ error: { message: 'This variant is already in the bundle — change its quantity instead' } });
+      return;
+    }
+
     const item = repo.create({
       bundle,
       variant,
@@ -111,14 +130,14 @@ export class BundleItemsController {
     const parsed = updateBundleItemSchema.safeParse(req.body);
     
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
     const repo = AppDataSource.getRepository(BundleItem);
     const item = await repo.findOne({
       where: { id },
-      relations: ['bundle', 'variant']
+      relations: ['bundle', 'bundle.catalogItem', 'bundle.catalogItem.organization', 'variant']
     });
 
     if (!item) {
@@ -130,7 +149,7 @@ export class BundleItemsController {
       const variantRepo = AppDataSource.getRepository(Variant);
       const variant = await variantRepo.findOne({ 
         where: { id: parsed.data.variantId },
-        relations: ['catalogItem']
+        relations: ['catalogItem', 'catalogItem.organization']
       });
       
       if (!variant) {
@@ -138,8 +157,8 @@ export class BundleItemsController {
         return;
       }
 
-      if (variant.catalogItem.id !== item.bundle.catalogItem.id) {
-        res.status(400).json({ error: { message: 'Variant does not belong to the same catalog item as bundle' } });
+      if (!sameOrganization(variant, item.bundle)) {
+        res.status(400).json({ error: { message: 'Variant belongs to a different organisation than the bundle' } });
         return;
       }
 

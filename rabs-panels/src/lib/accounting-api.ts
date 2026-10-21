@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * UK Accounting API client — base `/api/finance` (see rabs-api/docs/UK_ACCOUNTING.md).
+ * UK Accounting API client — base `/api/finance` (see zaam-api/docs/UK_ACCOUNTING.md).
  */
 import axios from 'axios';
 import { getSession } from '@/lib/auth';
@@ -152,6 +152,22 @@ export async function payAccBill(id: string, payload?: any) {
   return postFin(`/bills/${id}/payments`, payload);
 }
 
+export async function getAccBill(id: string, organizationId?: string) {
+  return getFin(`/bills/${id}`, { organizationId });
+}
+
+export async function submitAccBill(id: string) {
+  return postFin(`/bills/${id}/submit`);
+}
+
+export async function approveAccBill(id: string) {
+  return postFin(`/bills/${id}/approve`);
+}
+
+export async function postAccBill(id: string) {
+  return postFin(`/bills/${id}/post`);
+}
+
 // ─── Banking ─────────────────────────────────────────────────
 export async function listAccBankAccounts(organizationId?: string, params?: Query) {
   return getFin('/bank-accounts', { organizationId, ...params });
@@ -159,6 +175,11 @@ export async function listAccBankAccounts(organizationId?: string, params?: Quer
 
 export async function createAccBankAccount(payload: any) {
   return postFin('/bank-accounts', payload);
+}
+
+export async function deleteAccBankAccount(id: string) {
+  const { data } = await axios.delete(`${API_BASE}${BASE}/bank-accounts/${id}`, { headers: authHeaders() });
+  return data;
 }
 
 export async function listAccBankTransactions(organizationId?: string, params?: Query) {
@@ -192,6 +213,33 @@ export async function createAccChartOfAccounts(payload: any) {
 
 export async function listAccLedgerAccounts(organizationId?: string, params?: Query) {
   return getFin('/ledger-accounts', { organizationId, ...params });
+}
+
+export type LedgerAccountTypeOption = {
+  value: string;
+  label: string;
+  normalBalance: 'debit' | 'credit';
+  subtypes: string[];
+  subtypeOptions?: Array<{ value: string; label: string }>;
+};
+
+/** Fallback only — the API (`GET /ledger-accounts/types`) is the source of truth and validates against the same list. */
+export const DEFAULT_LEDGER_ACCOUNT_TYPES: LedgerAccountTypeOption[] = [
+  { value: 'asset', label: 'Asset', normalBalance: 'debit', subtypes: [] },
+  { value: 'liability', label: 'Liability', normalBalance: 'credit', subtypes: [] },
+  { value: 'equity', label: 'Equity', normalBalance: 'credit', subtypes: [] },
+  { value: 'revenue', label: 'Revenue', normalBalance: 'credit', subtypes: [] },
+  { value: 'expense', label: 'Expense', normalBalance: 'debit', subtypes: [] },
+  { value: 'cost_of_goods_sold', label: 'Cost of Goods Sold', normalBalance: 'debit', subtypes: [] },
+];
+
+export async function listLedgerAccountTypes(organizationId?: string): Promise<LedgerAccountTypeOption[]> {
+  try {
+    const res = await getFin<{ data: LedgerAccountTypeOption[] }>('/ledger-accounts/types', { organizationId });
+    return res?.data?.length ? res.data : DEFAULT_LEDGER_ACCOUNT_TYPES;
+  } catch {
+    return DEFAULT_LEDGER_ACCOUNT_TYPES;
+  }
 }
 
 export async function createAccLedgerAccount(payload: any) {
@@ -241,6 +289,11 @@ export async function listAccVatReturns(organizationId?: string, params?: Query)
   return getFin('/vat-returns', { organizationId, ...params });
 }
 
+export async function deleteAccVatReturn(id: string) {
+  const { data } = await axios.delete(`${API_BASE}${BASE}/vat-returns/${id}`, { headers: authHeaders() });
+  return data;
+}
+
 export async function createAccVatReturn(payload: any) {
   try {
     return await postFin('/reports/vat-draft', payload);
@@ -277,12 +330,26 @@ export async function listAccExpenses(organizationId?: string, params?: Query) {
   }
 }
 
+export async function listAccExpenseEmployees(organizationId?: string): Promise<{ data: any[] }> {
+  try {
+    return await getFin('/expenses/employees', { organizationId });
+  } catch (err) {
+    if (!isApiMissing(err)) throw err;
+    const { listEmployees } = await import('@/lib/api');
+    return listEmployees({ organizationId });
+  }
+}
+
 export async function createAccExpense(payload: any) {
   return postFin('/expenses', payload);
 }
 
 export async function approveAccExpense(id: string) {
   return postFin(`/expenses/${id}/approve`);
+}
+
+export async function rejectAccExpense(id: string, rejectionReason?: string) {
+  return postFin(`/expenses/${id}/reject`, { rejectionReason });
 }
 
 // ─── Fixed assets ────────────────────────────────────────────
@@ -363,14 +430,9 @@ export async function listAccDocuments(organizationId?: string, params?: Query) 
 }
 
 export async function createAccDocument(payload: any) {
-  try {
-    return await postFin('/documents', payload);
-  } catch (err) {
-    if (!isApiMissing(err)) throw err;
-    // Fallback: attach documentUrl onto invoice if entityType=invoice
-    if (payload.entityType === 'invoice' && payload.entityId && payload.documentUrl) {
-      return patchFin(`/invoices/${payload.entityId}`, { documentUrl: payload.documentUrl });
-    }
-    throw err;
-  }
+  return postFin('/documents', payload);
+}
+
+export async function getAccDocument(id: string, organizationId?: string) {
+  return getFin(`/documents/${id}`, { organizationId });
 }

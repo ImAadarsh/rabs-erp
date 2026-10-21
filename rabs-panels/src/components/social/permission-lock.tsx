@@ -6,6 +6,7 @@ export function PermissionLock({
   title,
   message,
   missingPermission,
+  missingPermissions,
   product,
   onReconnect,
   reconnectLabel = 'Reconnect Meta'
@@ -13,10 +14,14 @@ export function PermissionLock({
   title: string;
   message: string;
   missingPermission?: string;
+  missingPermissions?: string[];
   product?: string;
   onReconnect?: () => void;
   reconnectLabel?: string;
 }) {
+  const perms = Array.from(
+    new Set([...(missingPermissions || []), ...(missingPermission ? [missingPermission] : [])].filter(Boolean))
+  );
   return (
     <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-6 md:p-8">
       <div className="flex items-start gap-3">
@@ -27,13 +32,19 @@ export function PermissionLock({
           <h3 className="font-semibold text-lg">{title}</h3>
           <p className="text-sm text-muted-foreground">{message}</p>
           <div className="flex flex-wrap gap-2 text-xs">
-            {missingPermission && (
-              <span className="rounded-full bg-muted px-2.5 py-1 font-mono">{missingPermission}</span>
-            )}
+            {perms.map((p) => (
+              <span key={p} className="rounded-full bg-muted px-2.5 py-1 font-mono">{p}</span>
+            ))}
             {product && (
               <span className="rounded-full bg-muted px-2.5 py-1">Meta product: {product}</span>
             )}
           </div>
+          {perms.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Fix: reconnect Meta and approve {perms.join(', ')} on the consent screen. If the permission is still missing
+              afterwards, it must be approved for the Meta app through App Review (Advanced Access) in the Meta developer dashboard.
+            </p>
+          )}
           {onReconnect && (
             <button
               onClick={onReconnect}

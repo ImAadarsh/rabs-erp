@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { zodMessage } from '@services/finance/zodMessage.js';
 import { AppDataSource } from '@config/data-source.js';
 import { HrJobPosting } from '@entities/hr/HrJobPosting.js';
 import { HrApplicant } from '@entities/hr/HrApplicant.js';
@@ -101,7 +102,7 @@ export class JobPostingsController {
     try {
       const parsed = jobSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const orgId = parsed.data.organizationId || orgIdFromReq(req);
@@ -135,7 +136,7 @@ export class JobPostingsController {
     try {
       const parsed = jobSchema.partial().safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const repo = AppDataSource.getRepository(HrJobPosting);
@@ -201,7 +202,7 @@ export class ApplicantsController {
     try {
       const parsed = applicantSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const job = await AppDataSource.getRepository(HrJobPosting).findOne({
@@ -237,7 +238,7 @@ export class ApplicantsController {
     try {
       const parsed = applicantSchema.partial().omit({ jobPostingId: true }).safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const repo = AppDataSource.getRepository(HrApplicant);
@@ -339,7 +340,7 @@ export class OnboardingController {
     try {
       const parsed = onboardSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const repo = AppDataSource.getRepository(HrOnboardingChecklist);
@@ -366,7 +367,7 @@ export class OnboardingController {
     try {
       const parsed = onboardSchema.partial().omit({ employeeId: true }).safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const repo = AppDataSource.getRepository(HrOnboardingChecklist);

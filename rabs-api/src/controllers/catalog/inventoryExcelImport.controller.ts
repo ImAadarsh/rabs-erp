@@ -6,7 +6,7 @@ import { runInventoryExcelImport } from '@services/import/inventoryExcelImport.j
 const optionsSchema = z.object({
   organizationId: z.string().min(1),
   businessUnitId: z.string().optional(),
-  duplicateMode: z.enum(['skip', 'update']).default('update'),
+  duplicateMode: z.enum(['skip', 'update']).default('skip'),
   importInventory: z
     .union([z.boolean(), z.string()])
     .optional()
@@ -48,7 +48,7 @@ export class InventoryExcelImportController {
       const parsed = optionsSchema.safeParse({
         organizationId: req.body.organizationId,
         businessUnitId: req.body.businessUnitId || undefined,
-        duplicateMode: req.body.duplicateMode || 'update',
+        duplicateMode: req.body.duplicateMode || 'skip',
         importInventory: req.body.importInventory
       });
       if (!parsed.success) {

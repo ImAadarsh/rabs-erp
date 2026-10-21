@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { Organization } from '@entities/iam/Organization.js';
 import { BusinessUnit } from '@entities/iam/BusinessUnit.js';
 import { User } from '@entities/iam/User.js';
+import { zodMessage } from '@services/finance/zodMessage.js';
 
 const createVatReturnSchema = z.object({
   organizationId: z.string(),
@@ -105,7 +106,7 @@ export class VatReturnsController {
     try {
       const parsed = createVatReturnSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 
@@ -172,7 +173,7 @@ export class VatReturnsController {
       const parsed = updateVatReturnSchema.safeParse(req.body);
       
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 
@@ -264,6 +265,13 @@ export class VatReturnsController {
 
       if (item.status === 'submitted' || item.status === 'accepted') {
         res.status(400).json({ error: { message: 'Cannot delete a submitted or accepted VAT return' } });
+        return;
+      }
+
+      const roles: string[] = (req as any).auth?.roles || [];
+      const isAdmin = roles.includes('ADMIN') || roles.includes('SUPER_ADMIN');
+      if (!isAdmin && item.status !== 'draft') {
+        res.status(403).json({ error: { message: 'Only draft VAT returns can be deleted by finance users' } });
         return;
       }
 

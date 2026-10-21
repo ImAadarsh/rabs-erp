@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { AppDataSource } from '@config/data-source.js';
 import { TimeEntry } from '@entities/hr/TimeEntry.js';
 import { z } from 'zod';
+import { zodMessage } from '@services/finance/zodMessage.js';
 import { Employee } from '@entities/hr/Employee.js';
 import { BusinessUnit } from '@entities/iam/BusinessUnit.js';
 import { Location } from '@entities/iam/Location.js';
@@ -98,7 +99,7 @@ export class TimeEntriesController {
     try {
       const parsed = createTimeEntrySchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 
@@ -158,7 +159,7 @@ export class TimeEntriesController {
       const parsed = updateTimeEntrySchema.safeParse(req.body);
       
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 

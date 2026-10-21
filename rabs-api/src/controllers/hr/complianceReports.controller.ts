@@ -12,6 +12,25 @@ import { orgIdFromReq } from '@services/hr/hrScope.js';
 import { stubVisaReminderEmail } from '@services/hr/payrollCalc.service.js';
 import { IsNull } from 'typeorm';
 
+/**
+ * Resolve open visa-expiry alerts that no longer match the employee's current visa expiry
+ * (visa renewed / date corrected / record removed) or whose employee has left.
+ * Alerts for a visa that is still current but already expired stay open.
+ */
+async function closeStaleVisaAlerts(orgId: string): Promise<number> {
+  const result: any = await AppDataSource.query(
+    `UPDATE hr_compliance_alerts a
+       LEFT JOIN employees e ON e.id = a.employee_id
+        SET a.status = 'resolved', a.resolved_at = NOW()
+      WHERE a.organization_id = ? AND a.alert_type = 'visa_expiry' AND a.status IN ('open', 'acknowledged')
+        AND (e.id IS NULL OR e.deleted_at IS NOT NULL OR e.status = 'terminated'
+             OR NOT EXISTS (SELECT 1 FROM hr_immigration i
+                             WHERE i.employee_id = a.employee_id AND i.visa_expiry = a.due_date))`,
+    [orgId]
+  );
+  return result?.affectedRows ?? 0;
+}
+
 export class ComplianceController {
   /** Visa expiry within N days — also upserts open compliance alerts + stub reminders. */
   static async visaExpiring(req: Request, res: Response): Promise<void> {
@@ -27,22 +46,26 @@ export class ComplianceController {
       until.setDate(until.getDate() + withinDays);
       const todayStr = today.toISOString().slice(0, 10);
       const untilStr = until.toISOString().slice(0, 10);
+      const includeExpired = ['1', 'true'].includes(String(req.query.includeExpired || ''));
+      await closeStaleVisaAlerts(orgId);
 
-      const rows = await AppDataSource.getRepository(HrImmigration)
+      const qb = AppDataSource.getRepository(HrImmigration)
         .createQueryBuilder('i')
         .innerJoinAndSelect('i.employee', 'emp')
         .where('emp.organization_id = :orgId', { orgId })
         .andWhere('emp.deleted_at IS NULL')
         .andWhere('i.visa_expiry IS NOT NULL')
-        .andWhere('i.visa_expiry >= :today', { today: todayStr })
         .andWhere('i.visa_expiry <= :until', { until: untilStr })
-        .orderBy('i.visa_expiry', 'ASC')
-        .getMany();
+        .orderBy('i.visa_expiry', 'ASC');
+      if (includeExpired) qb.andWhere("emp.status <> 'terminated'");
+      else qb.andWhere('i.visa_expiry >= :today', { today: todayStr });
+      const rows = await qb.getMany();
 
       const alertRepo = AppDataSource.getRepository(HrComplianceAlert);
       const alerts = [];
       for (const row of rows) {
         const expiry = String(row.visaExpiry).slice(0, 10);
+        if (expiry < todayStr) continue;
         const daysUntil = Math.ceil(
           (new Date(expiry).getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
         );
@@ -86,6 +109,7 @@ export class ComplianceController {
       res.json({
         data: {
           withinDays,
+          includeExpired,
           count: rows.length,
           expiring: rows.map((r) => ({
             immigrationId: r.id,
@@ -112,6 +136,7 @@ export class ComplianceController {
         res.status(400).json({ error: { message: 'organizationId required' } });
         return;
       }
+      await closeStaleVisaAlerts(orgId);
       const { status = 'open', page = '1', limit = '50' } = req.query;
       const take = Math.min(Number(limit) || 50, 200);
       const skip = (Math.max(Number(page) || 1, 1) - 1) * take;

@@ -3,16 +3,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
 import { listAccBills, createAccBill, listVatCodes } from '@/lib/accounting-api';
-import { formatMoney, formatDate, statusBadgeClass, accApiError } from '@/lib/accounting-utils';
+import { formatMoney, formatDate, statusBadgeClass, accApiError, accFieldErrors, vatRateFraction } from '@/lib/accounting-utils';
 import { AccModal, AccField, AccModalActions, AccCreateButton, accInputClass, MtdBanner } from '@/components/accounting/acc-modal';
 import { ColumnDef } from '@tanstack/react-table';
-import { Plus } from 'lucide-react';
+import { Plus, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function AccountingPurchasesPage() {
@@ -27,8 +28,8 @@ export default function AccountingPurchasesPage() {
   const [vatCodes, setVatCodes] = useState<any[]>([]);
   const orgId = session?.user?.organizationId;
 
-  const [form, setForm] = useState({
-    billNumber: '',
+  const emptyForm = () => ({
+    billNumber: `BILL-${Date.now().toString().slice(-8)}`,
     billDate: new Date().toISOString().slice(0, 10),
     dueDate: '',
     supplierName: '',
@@ -39,6 +40,8 @@ export default function AccountingPurchasesPage() {
     vatAmount: '',
     total: '',
   });
+  const [form, setForm] = useState(emptyForm);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     if (!orgId) return;
@@ -66,35 +69,45 @@ export default function AccountingPurchasesPage() {
 
   function recalc(netStr: string, code: string) {
     const net = Number(netStr) || 0;
-    const rate = Number((vatCodes.find((c) => c.code === code) || { rate: 20 }).rate) || 0;
-    const vat = Math.round(net * rate) / 100;
-    return { vatAmount: vat.toFixed(2), total: (net + vat).toFixed(2) };
+    const rate = vatRateFraction((vatCodes.find((c) => c.code === code) || { rate: 0 }).rate);
+    const vat = Math.round(net * rate * 100) / 100;
+    // Reverse charge: the buyer self-accounts the VAT, so it is not owed to the supplier.
+    const payableVat = code === 'RC' ? 0 : vat;
+    return { vatAmount: vat.toFixed(2), total: (net + payableVat).toFixed(2) };
   }
 
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!orgId) return;
+    const next: Record<string, string> = {};
+    if (!form.billNumber.trim()) next.billNumber = 'Bill number is required';
+    if (!form.supplierName.trim()) next.supplierName = 'Supplier is required';
+    if (!form.billDate) next.billDate = 'Bill date is required';
+    if (!(Number(form.netAmount) > 0)) next.subtotal = 'Net amount must be greater than 0';
+    if (form.dueDate && form.billDate && form.dueDate < form.billDate) next.dueDate = 'Due date cannot be before bill date';
+    setErrors(next);
+    if (Object.keys(next).length) return;
+    const vatCodeId = vatCodes.find((c) => c.code === form.vatCode)?.id;
     setSaving(true);
     try {
-      await createAccBill({
+      const created: any = await createAccBill({
         organizationId: orgId,
-        billNumber: form.billNumber,
+        billNumber: form.billNumber.trim(),
         billDate: form.billDate,
         dueDate: form.dueDate || undefined,
-        supplierName: form.supplierName,
+        supplierName: form.supplierName.trim(),
         currency: form.currency,
-        description: form.description,
+        description: form.description.trim() || undefined,
         subtotal: Number(form.netAmount),
-        taxTotal: Number(form.vatAmount || 0),
-        total: Number(form.total || 0),
-        vatCode: form.vatCode,
-        status: 'draft',
+        vatCodeId: vatCodeId ? String(vatCodeId) : undefined,
       });
-      toast.success('Bill created');
+      const newId = created?.data?.id;
+      toast.success('Bill created', newId ? { action: { label: 'View', onClick: () => router.push(`/accounting/purchases/${newId}`) } } : undefined);
       setOpen(false);
       await load();
     } catch (err) {
-      toast.error(accApiError(err, 'Failed to create bill — needs /api/accounting'));
+      setErrors(accFieldErrors(err));
+      toast.error(accApiError(err, 'Failed to create bill'));
     } finally {
       setSaving(false);
     }
@@ -102,12 +115,30 @@ export default function AccountingPurchasesPage() {
 
   const columns = useMemo<ColumnDef<any>[]>(
     () => [
-      { accessorKey: 'billNumber', header: 'Bill #', cell: ({ row }) => <span className="font-mono text-xs">{row.original.billNumber || row.original.reference}</span> },
+      {
+        accessorKey: 'billNumber',
+        header: 'Bill #',
+        cell: ({ row }) => (
+          <Link href={`/accounting/purchases/${row.original.id}`} className="font-mono text-xs text-brand hover:underline">
+            {row.original.billNumber || row.original.reference}
+          </Link>
+        ),
+      },
       { accessorKey: 'supplierName', header: 'Supplier', cell: ({ row }) => row.original.supplierName || row.original.supplier?.name || '—' },
       { accessorKey: 'billDate', header: 'Date', cell: ({ row }) => formatDate(row.original.billDate || row.original.invoiceDate) },
       { accessorKey: 'dueDate', header: 'Due', cell: ({ row }) => formatDate(row.original.dueDate) },
       { accessorKey: 'total', header: 'Total', cell: ({ row }) => formatMoney(row.original.total, row.original.currency || 'GBP') },
-      { accessorKey: 'status', header: 'Status', cell: ({ row }) => <span className={statusBadgeClass(row.original.status)}>{row.original.status || 'draft'}</span> },
+      { accessorKey: 'status', header: 'Status', cell: ({ row }) => <span className={statusBadgeClass(row.original.status)}>{String(row.original.status || 'draft').replace(/_/g, ' ')}</span> },
+      {
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        cell: ({ row }) => (
+          <Link href={`/accounting/purchases/${row.original.id}`} className="inline-flex items-center gap-1 text-xs font-semibold text-brand hover:underline" title="View bill">
+            <Eye size={14} /> View
+          </Link>
+        ),
+      },
     ],
     []
   );
@@ -125,11 +156,12 @@ export default function AccountingPurchasesPage() {
             </p>
           ) : null}
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-sm text-muted-foreground">Supplier bills, input VAT, and AP ageing.</p>
+            <p className="text-sm text-muted-foreground">Supplier bills, input VAT, and AP ageing. Click a bill number to view, approve, post, pay or attach documents.</p>
             <AccCreateButton
               label="Create Bill"
               onClick={() => {
-                setForm((f) => ({ ...f, billNumber: `BILL-${Date.now().toString().slice(-8)}` }));
+                setForm(emptyForm());
+                setErrors({});
                 setOpen(true);
               }}
             />
@@ -139,24 +171,25 @@ export default function AccountingPurchasesPage() {
       </div>
 
       <AccModal open={open} onClose={() => setOpen(false)} title="Create Bill" icon={Plus} wide>
-        <form onSubmit={onCreate} className="space-y-4">
+        <form onSubmit={onCreate} className="space-y-4" noValidate>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <AccField label="Bill number">
+            <AccField label="Bill number" error={errors.billNumber}>
               <input className={accInputClass} value={form.billNumber} onChange={(e) => setForm({ ...form, billNumber: e.target.value })} required />
             </AccField>
-            <AccField label="Supplier">
+            <AccField label="Supplier" error={errors.supplierName || errors.supplierId} hint="Existing supplier name, or a new one is created">
               <input className={accInputClass} value={form.supplierName} onChange={(e) => setForm({ ...form, supplierName: e.target.value })} required />
             </AccField>
-            <AccField label="Bill date">
+            <AccField label="Bill date" error={errors.billDate}>
               <input type="date" className={accInputClass} value={form.billDate} onChange={(e) => setForm({ ...form, billDate: e.target.value })} required />
             </AccField>
-            <AccField label="Due date">
-              <input type="date" className={accInputClass} value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
+            <AccField label="Due date" error={errors.dueDate}>
+              <input type="date" className={accInputClass} value={form.dueDate} min={form.billDate || undefined} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
             </AccField>
-            <AccField label="Net amount">
+            <AccField label="Net amount" error={errors.subtotal}>
               <input
                 type="number"
                 step="0.01"
+                min="0.01"
                 className={accInputClass}
                 value={form.netAmount}
                 onChange={(e) => {
@@ -166,7 +199,7 @@ export default function AccountingPurchasesPage() {
                 required
               />
             </AccField>
-            <AccField label="VAT code">
+            <AccField label="VAT code" error={errors.vatCodeId}>
               <select
                 className={accInputClass}
                 value={form.vatCode}
@@ -175,16 +208,17 @@ export default function AccountingPurchasesPage() {
                   setForm({ ...form, vatCode, ...recalc(form.netAmount, vatCode) });
                 }}
               >
+                <option value="">No VAT</option>
                 {vatCodes.map((c) => (
                   <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
                 ))}
               </select>
             </AccField>
-            <AccField label="VAT">
-              <input type="number" step="0.01" className={accInputClass} value={form.vatAmount} onChange={(e) => setForm({ ...form, vatAmount: e.target.value })} />
+            <AccField label="VAT" hint="Calculated from VAT code">
+              <input type="number" className={accInputClass} value={form.vatAmount} readOnly tabIndex={-1} />
             </AccField>
-            <AccField label="Total">
-              <input type="number" step="0.01" className={accInputClass} value={form.total} onChange={(e) => setForm({ ...form, total: e.target.value })} />
+            <AccField label="Total" hint={form.vatCode === 'RC' ? 'Reverse charge: VAT is not paid to the supplier' : 'Net + VAT'}>
+              <input type="number" className={accInputClass} value={form.total} readOnly tabIndex={-1} />
             </AccField>
           </div>
           <AccField label="Description">

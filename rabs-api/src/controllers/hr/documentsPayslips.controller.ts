@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { zodMessage } from '@services/finance/zodMessage.js';
 import { AppDataSource } from '@config/data-source.js';
 import { Employee } from '@entities/hr/Employee.js';
 import { HrDocument } from '@entities/hr/HrDocument.js';
@@ -8,16 +9,16 @@ import { HrTaxDocument } from '@entities/hr/HrTaxDocument.js';
 import { PayrollRun } from '@entities/hr/PayrollRun.js';
 import { PayrollLine } from '@entities/hr/PayrollLine.js';
 import { HrPension } from '@entities/hr/HrPension.js';
-import { userIdFromReq } from '@services/hr/hrScope.js';
+import { optionalDocUrl, userIdFromReq } from '@services/hr/hrScope.js';
 import { calculateIllustrativePayeNi } from '@services/hr/payrollCalc.service.js';
 import { IsNull } from 'typeorm';
 
 const docSchema = z.object({
-  employeeId: z.string(),
+  employeeId: z.coerce.string(),
   docCategory: z.enum(['contract', 'handbook', 'policy', 'id', 'certificate', 'other']).optional(),
-  documentName: z.string().min(1).max(255),
+  documentName: z.string().min(1, 'is required').max(255),
   s3Key: z.string().max(500).optional().nullable(),
-  documentUrl: z.string().max(1000).optional().nullable(),
+  documentUrl: optionalDocUrl,
   issueDate: z.string().optional().nullable(),
   expiryDate: z.string().optional().nullable(),
   notes: z.string().max(500).optional().nullable()
@@ -74,7 +75,7 @@ export class HrDocumentsController {
     try {
       const parsed = docSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const emp = await AppDataSource.getRepository(Employee).findOne({
@@ -109,7 +110,7 @@ export class HrDocumentsController {
     try {
       const parsed = docSchema.partial().omit({ employeeId: true }).safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const repo = AppDataSource.getRepository(HrDocument);
@@ -167,7 +168,7 @@ export class PayslipsController {
     try {
       const parsed = payslipSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const emp = await AppDataSource.getRepository(Employee).findOne({
@@ -245,7 +246,7 @@ export class TaxDocumentsController {
     try {
       const parsed = taxDocSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const emp = await AppDataSource.getRepository(Employee).findOne({

@@ -6,6 +6,7 @@ import { Variant } from '@entities/catalog/Variant.js';
 import { Warehouse } from '@entities/inventory/Warehouse.js';
 import { Bin } from '@entities/inventory/Bin.js';
 import { IsNull } from 'typeorm';
+import { inactiveBinError, inactiveWarehouseError } from '@services/inventory/locationStatus.js';
 
 const createStockItemSchema = z.object({
   variantId: z.string(),
@@ -133,6 +134,11 @@ export class StockItemsController {
         res.status(400).json({ error: { message: 'Invalid warehouseId' } });
         return;
       }
+      const warehouseError = inactiveWarehouseError(warehouse);
+      if (warehouseError) {
+        res.status(400).json({ error: { message: warehouseError } });
+        return;
+      }
 
       let bin = null;
       if (parsed.data.binId) {
@@ -140,6 +146,11 @@ export class StockItemsController {
         bin = await binRepo.findOne({ where: { id: parsed.data.binId, warehouse: { id: parsed.data.warehouseId } } });
         if (!bin) {
           res.status(400).json({ error: { message: 'Invalid binId or bin does not belong to warehouse' } });
+          return;
+        }
+        const binError = inactiveBinError(bin);
+        if (binError) {
+          res.status(400).json({ error: { message: binError } });
           return;
         }
       }
@@ -217,9 +228,14 @@ export class StockItemsController {
       if (parsed.data.binId !== undefined) {
         if (parsed.data.binId) {
           const binRepo = AppDataSource.getRepository(Bin);
-          const bin = await binRepo.findOne({ where: { id: parsed.data.binId, warehouse: { id: item.warehouse.id } } });
+          const bin = await binRepo.findOne({ where: { id: parsed.data.binId, warehouse: { id: item.warehouse.id } }, relations: ['warehouse'] });
           if (!bin) {
             res.status(400).json({ error: { message: 'Invalid binId or bin does not belong to warehouse' } });
+            return;
+          }
+          const binError = bin.id !== item.bin?.id ? inactiveBinError(bin) : null;
+          if (binError) {
+            res.status(400).json({ error: { message: binError } });
             return;
           }
           item.bin = bin;

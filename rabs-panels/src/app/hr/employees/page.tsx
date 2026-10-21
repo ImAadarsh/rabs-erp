@@ -3,11 +3,12 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
-import { listEmployees, createEmployee, updateEmployee, deleteEmployee, listUsers } from '@/lib/api';
+import { listEmployees, createEmployee, updateEmployee, deleteEmployee, listUserOptions } from '@/lib/api';
 import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
 import Link from 'next/link';
 import { Pencil, Trash2, Plus, Eye, Users } from 'lucide-react';
@@ -57,6 +58,8 @@ export default function EmployeesPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'HR_MANAGER', 'HR_ADMIN']);
+  const { can } = useApiAccess();
+  const canDelete = can('DELETE', '/api/hr/employees/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<Employee[]>([]);
   const [users, setUsers] = useState<any[]>([]);
@@ -91,7 +94,7 @@ export default function EmployeesPage() {
       try {
         const [empRes, usersRes] = await Promise.all([
           listEmployees({ organizationId: session?.user?.organizationId }),
-          listUsers(),
+          listUserOptions().catch(() => ({ data: [] })),
         ]);
         setItems(empRes.data || []);
         setUsers(usersRes.data || []);
@@ -258,14 +261,16 @@ export default function EmployeesPage() {
             >
               <Pencil size={16} />
             </button>
-            <button type="button" onClick={() => setConfirmDel(row.original)} className="p-1.5 hover:bg-muted rounded text-destructive">
-              <Trash2 size={16} />
-            </button>
+            {canDelete && (
+              <button type="button" onClick={() => setConfirmDel(row.original)} className="p-1.5 hover:bg-muted rounded text-destructive">
+                <Trash2 size={16} />
+              </button>
+            )}
           </div>
         ),
       },
     ],
-    []
+    [canDelete]
   );
 
   if (!hydrated || loading) {

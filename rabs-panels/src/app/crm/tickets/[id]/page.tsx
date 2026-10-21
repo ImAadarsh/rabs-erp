@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
-import { getTicket, addTicketMessage, assignTicket, listCannedResponses } from '@/lib/api';
+import { getTicket, addTicketMessage, assignTicket, listCannedResponses, incrementCannedResponseUsage } from '@/lib/api';
 import { toast } from 'sonner';
 import {
     MessageSquare,
@@ -20,10 +20,16 @@ import {
     History
 } from 'lucide-react';
 import { getSession } from '@/lib/auth';
+import { useApiAccess } from '@/hooks/use-api-access';
 
 export default function TicketDetailPage() {
     const { id } = useParams();
     const router = useRouter();
+    const { can } = useApiAccess();
+    const canReply = can('POST', '/api/crm/tickets/:id/messages');
+    const canAssign = can('POST', '/api/crm/tickets/:id/assign');
+    const canUpdate = can('PATCH', '/api/crm/tickets/:id');
+    const canTrackCanned = can('POST', '/api/crm/canned-responses/:id/usage');
     const [ticket, setTicket] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
@@ -42,10 +48,10 @@ export default function TicketDetailPage() {
             try {
                 const [ticketRes, responsesRes] = await Promise.all([
                     getTicket(id as string),
-                    listCannedResponses()
+                    listCannedResponses().catch(() => ({ data: [] }))
                 ]);
                 setTicket(ticketRes.data);
-                setCannedResponses(responsesRes.data);
+                setCannedResponses(responsesRes.data || []);
             } catch (err) {
                 console.error('Failed to load ticket details', err);
                 toast.error('Failed to load ticket details');
@@ -56,6 +62,25 @@ export default function TicketDetailPage() {
 
         if (id) loadData();
     }, [id, router]);
+
+    const activeCanned = useMemo(() => cannedResponses.filter((r) => r.isActive !== false), [cannedResponses]);
+
+    function applyCanned(res: any, base: string) {
+        setMessage(base.trim() ? `${base.trimEnd()}\n${res.content}` : res.content);
+        if (canTrackCanned) void incrementCannedResponseUsage(res.id).catch(() => undefined);
+    }
+
+    function handleMessageChange(value: string) {
+        const m = value.match(/(^|\s)\/([\w-]+)\s$/);
+        if (m) {
+            const hit = activeCanned.find((r) => r.shortcut && r.shortcut.toLowerCase() === m[2].toLowerCase());
+            if (hit) {
+                applyCanned(hit, value.slice(0, value.length - m[2].length - 2));
+                return;
+            }
+        }
+        setMessage(value);
+    }
 
     async function handleSendMessage(e: React.FormEvent) {
         e.preventDefault();
@@ -119,9 +144,9 @@ export default function TicketDetailPage() {
             <div className="flex flex-col min-w-0 lg:ml-[280px]">
                 <Header
                     title={`Ticket #${ticket.ticketNumber} - ${ticket.subject}`}
-                    actions={[
+                    actions={canAssign ? [
                         { label: 'Assign', onClick: () => { }, icon: <UserPlus size={18} /> }
-                    ]}
+                    ] : []}
                 />
 
                 <main className="p-4 md:p-8 grid grid-cols-1 xl:grid-cols-3 gap-8">
@@ -187,12 +212,13 @@ export default function TicketDetailPage() {
                             </div>
 
                             {/* Reply Form */}
+                            {canReply && (
                             <div className="p-4 bg-muted/30 border-t border-border">
                                 <form onSubmit={handleSendMessage} className="space-y-4">
                                     <div className="relative group">
                                         <textarea
                                             value={message}
-                                            onChange={(e) => setMessage(e.target.value)}
+                                            onChange={(e) => handleMessageChange(e.target.value)}
                                             placeholder={isInternal ? "Write internal note (only visible to team)..." : "Type your reply..."}
                                             className={`w-full bg-background border p-4 rounded-2xl focus:outline-none focus:ring-2 transition-all min-h-[120px] resize-none ${isInternal
                                                 ? 'border-amber-500/20 focus:ring-amber-500/20 text-amber-900 dark:text-amber-100 placeholder:text-amber-500/40'
@@ -214,11 +240,12 @@ export default function TicketDetailPage() {
 
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-                                            {cannedResponses.slice(0, 3).map(res => (
+                                            {activeCanned.map(res => (
                                                 <button
                                                     key={res.id}
                                                     type="button"
-                                                    onClick={() => setMessage(res.content)}
+                                                    title={res.shortcut ? `/${res.shortcut}` : undefined}
+                                                    onClick={() => applyCanned(res, message)}
                                                     className="px-3 py-1.5 rounded-lg bg-muted border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-muted/80 transition whitespace-nowrap"
                                                 >
                                                     {res.title}
@@ -237,6 +264,7 @@ export default function TicketDetailPage() {
                                     </div>
                                 </form>
                             </div>
+                            )}
                         </div>
                     </div>
 
@@ -310,7 +338,7 @@ export default function TicketDetailPage() {
                         <div className="glass-card p-6 space-y-4">
                             <div className="flex items-center justify-between">
                                 <h3 className="text-sm font-bold text-primary uppercase tracking-widest">Tags</h3>
-                                <button className="text-[10px] font-bold uppercase text-muted-foreground hover:text-primary transition">Manage</button>
+                                {canUpdate && <button className="text-[10px] font-bold uppercase text-muted-foreground hover:text-primary transition">Manage</button>}
                             </div>
                             <div className="flex flex-wrap gap-2">
                                 {ticket.tags ? ticket.tags.split(',').map((tag: string) => (

@@ -7,6 +7,7 @@ import {
   listOrganizations,
   createOrganization,
   updateOrganization,
+  deleteOrganization,
   createOrganizationWithLogo,
   getCurrentUser,
   listBusinessUnits,
@@ -20,6 +21,7 @@ import {
 } from '@/lib/api';
 import { toast } from 'sonner';
 import { useSession } from '@/hooks/use-session';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { Plus, Building2, Edit2, Save, X, Trash2, MapPin, Briefcase, ChevronDown, ChevronRight } from 'lucide-react';
 
 // ISO 3166-1 alpha-2 country codes
@@ -137,6 +139,9 @@ type Location = {
 export default function OrganizationsPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
+  const { can } = useApiAccess();
+  const canCreateOrg = can('POST', '/api/iam/organizations');
+  const canDeleteOrgRoute = can('DELETE', '/api/iam/organizations/:id');
   const [loading, setLoading] = useState(true);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
@@ -155,6 +160,9 @@ export default function OrganizationsPage() {
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [deletingOrg, setDeletingOrg] = useState<Organization | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -363,6 +371,26 @@ export default function OrganizationsPage() {
     }
   }
 
+  async function handleDeleteOrg() {
+    if (!deletingOrg || deleteConfirmName.trim() !== deletingOrg.name.trim()) return;
+    setDeleteBusy(true);
+    try {
+      await deleteOrganization(deletingOrg.id, deleteConfirmName.trim());
+      setOrganizations((orgs) => orgs.filter((o) => o.id !== deletingOrg.id));
+      toast.success(`Organization "${deletingOrg.name}" deleted`);
+      setDeletingOrg(null);
+      setDeleteConfirmName('');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error?.message ?? 'Delete failed');
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
+  function canDeleteOrg(org: Organization): boolean {
+    return isSuperAdmin && canDeleteOrgRoute && organizations.length > 1 && session?.user?.organizationId !== org.id;
+  }
+
   function canEditOrg(org: Organization): boolean {
     if (isSuperAdmin) return true;
     return session?.user?.organizationId === org.id;
@@ -382,7 +410,7 @@ export default function OrganizationsPage() {
         <Header
           title="IAM · Manage Organization"
           actions={
-            isSuperAdmin
+            isSuperAdmin && canCreateOrg
               ? [{ label: 'New Organization', onClick: () => { 
                   setShowCreateOrg(true); 
                   setOrgFormData({ status: 'active' }); 
@@ -400,6 +428,19 @@ export default function OrganizationsPage() {
                 Manage organizations, business units, and locations
               </p>
             </div>
+            {isSuperAdmin && canCreateOrg && (
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setShowCreateOrg(true);
+                  setOrgFormData({ status: 'active' });
+                  setLogoFile(null);
+                  setLogoPreview(null);
+                }}
+              >
+                <Plus size={16} className="mr-2" /> New Organization
+              </button>
+            )}
           </div>
 
           {loading ? (
@@ -537,6 +578,14 @@ export default function OrganizationsPage() {
                                 setLogoPreview(org.logoUrl || null);
                               }}>
                                 <Edit2 size={14} className="mr-2" /> Edit
+                              </button>
+                            )}
+                            {canDeleteOrg(org) && (
+                              <button
+                                className="btn btn-outline btn-sm !text-red-600 hover:!bg-red-500/10 hover:!border-red-500/40"
+                                onClick={() => { setDeletingOrg(org); setDeleteConfirmName(''); }}
+                              >
+                                <Trash2 size={14} className="mr-2" /> Delete
                               </button>
                             )}
                         <button
@@ -750,6 +799,41 @@ export default function OrganizationsPage() {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* Delete Organization Modal */}
+          {deletingOrg && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="w-full max-w-md rounded-2xl bg-card shadow-2xl border border-border p-6 animate-in zoom-in-95 duration-200">
+                <h3 className="text-lg font-semibold mb-2 text-red-600">Delete organization</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  <span className="font-medium text-foreground">{deletingOrg.name}</span> will be removed from all lists and pickers.
+                  Organizations that still have users cannot be deleted.
+                </p>
+                <label className="block text-sm font-medium mb-1.5">
+                  Type <span className="font-mono bg-muted px-1.5 py-0.5 rounded">{deletingOrg.name}</span> to confirm
+                </label>
+                <input
+                  className="input"
+                  autoFocus
+                  value={deleteConfirmName}
+                  onChange={(e) => setDeleteConfirmName(e.target.value)}
+                  placeholder={deletingOrg.name}
+                />
+                <div className="flex justify-end gap-3 pt-4 mt-4 border-t border-border">
+                  <button className="btn btn-outline" disabled={deleteBusy} onClick={() => { setDeletingOrg(null); setDeleteConfirmName(''); }}>
+                    Cancel
+                  </button>
+                  <button
+                    className="btn !bg-red-600 !text-white hover:!bg-red-700 disabled:opacity-50"
+                    disabled={deleteBusy || deleteConfirmName.trim() !== deletingOrg.name.trim()}
+                    onClick={handleDeleteOrg}
+                  >
+                    <Trash2 size={16} className="mr-2" /> {deleteBusy ? 'Deleting...' : 'Delete organization'}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 

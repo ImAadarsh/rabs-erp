@@ -13,6 +13,7 @@ import type {
   ParsedExternalPayment,
   ParsedPaymentMethod
 } from './externalOrderTypes.js';
+import { htmlImageUrl, htmlToText } from '../../utils/htmlText.js';
 
 interface WcAddress {
   first_name?: string;
@@ -125,7 +126,7 @@ function parseDate(value: string | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function mapLine(item: WcLineItem): ParsedExternalOrderLine {
+export function mapLine(item: WcLineItem): ParsedExternalOrderLine {
   const quantity = Math.max(1, Math.round(num(item.quantity)));
   const lineSubtotal = num(item.subtotal);
   const lineTotal = num(item.total);
@@ -138,6 +139,7 @@ function mapLine(item: WcLineItem): ParsedExternalOrderLine {
     sku: item.sku?.trim() || null,
     // Prefer the variation id — that is what maps to a RABS variant.
     externalProductId: String(item.variation_id || item.product_id || ''),
+    externalParentProductId: item.variation_id && item.product_id ? String(item.product_id) : null,
     name: item.name || item.sku || 'Web item',
     quantity,
     unitPrice: num(item.price) || (quantity > 0 ? lineTotal / quantity : 0),
@@ -198,24 +200,29 @@ export function mapWooOrder(
   const billing = order.billing;
   const payerName = [billing?.first_name, billing?.last_name].filter(Boolean).join(' ').trim() || null;
 
+  // Some gateways put an <img> logo in the title; keep only readable text (+ the logo URL in raw).
+  const methodTitle = htmlToText(order.payment_method_title);
+  const methodLogo = htmlImageUrl(order.payment_method_title);
+
   // Woo exposes a single payment per order; only record it once actually paid.
   const payments: ParsedExternalPayment[] = isPaid
     ? [
         {
           externalId: order.transaction_id?.trim() || `wc-${opts.connectionId}-${order.id}`,
-          method: mapPaymentMethod(order.payment_method, order.payment_method_title),
+          method: mapPaymentMethod(order.payment_method, methodTitle ?? ''),
           amount: total,
           currency: order.currency || 'GBP',
           paidAt: datePaid!,
           status: (order.status ?? '').toLowerCase() === 'refunded' ? 'refunded' : 'completed',
-          reference: order.payment_method_title || order.payment_method || null,
+          reference: methodTitle || order.payment_method || null,
           payerName,
           payerEmail: billing?.email?.trim() || null,
           raw: {
             source: 'woocommerce',
             order_id: order.id,
             payment_method: order.payment_method,
-            payment_method_title: order.payment_method_title,
+            payment_method_title: methodTitle,
+            ...(methodLogo ? { payment_method_logo: methodLogo } : {}),
             transaction_id: order.transaction_id
           }
         }
@@ -263,6 +270,11 @@ export async function fetchWooOrders(
     to?: Date;
     statuses?: string[];
     maxOrders?: number;
+    /**
+     * `created` filters on the order date (manual imports); `modified` filters on the
+     * last-modified date so status changes on older orders are picked up too.
+     */
+    dateField?: 'created' | 'modified';
   }
 ): Promise<ParsedExternalOrder[]> {
   const base = normalizeUrl(creds.storeUrl);
@@ -270,16 +282,19 @@ export async function fetchWooOrders(
   const perPage = 100;
   const maxOrders = opts.maxOrders ?? 5000;
   const collected: WcOrder[] = [];
+  const byModified = opts.dateField === 'modified';
 
   for (let page = 1; page <= Math.ceil(maxOrders / perPage) + 1; page++) {
     const qs = new URLSearchParams({
       per_page: String(perPage),
       page: String(page),
       orderby: 'date',
-      order: 'desc'
+      order: 'desc',
+      // Our bounds are UTC instants; without this Woo reads them as store-local time.
+      dates_are_gmt: 'true'
     });
-    if (opts.from) qs.set('after', opts.from.toISOString());
-    if (opts.to) qs.set('before', opts.to.toISOString());
+    if (opts.from) qs.set(byModified ? 'modified_after' : 'after', opts.from.toISOString());
+    if (opts.to) qs.set(byModified ? 'modified_before' : 'before', opts.to.toISOString());
     if (opts.statuses?.length) qs.set('status', opts.statuses.join(','));
 
     const res = await fetch(`${base}/wp-json/wc/v3/orders?${qs.toString()}`, {
@@ -288,6 +303,20 @@ export async function fetchWooOrders(
 
     if (!res.ok) {
       const text = await res.text();
+      if (res.status === 401 || res.status === 403) {
+        let code = '';
+        try {
+          code = String((JSON.parse(text) as { code?: string }).code || '');
+        } catch {
+          code = '';
+        }
+        throw new Error(
+          `WooCommerce refused access to orders (${res.status}${code ? ` ${code}` : ''}). The API key saved for ${base} ` +
+            'does not have permission to read orders. In that store go to WooCommerce → Settings → Advanced → REST API, ' +
+            'create a new key for an Administrator/Shop Manager user with Read/Write permission, then update the ' +
+            'consumer key and secret on this channel connection.'
+        );
+      }
       throw new Error(`WooCommerce orders API error (${res.status}): ${text.slice(0, 300)}`);
     }
 
@@ -300,4 +329,36 @@ export async function fetchWooOrders(
   return collected
     .slice(0, maxOrders)
     .map((o) => mapWooOrder(o, { connectionId: opts.connectionId }));
+}
+
+/** Fetch specific WooCommerce orders by id (used to re-pull line items). */
+export async function fetchWooOrdersByIds(
+  creds: WordPressApiCredentials,
+  opts: { connectionId: string; orderIds: string[] }
+): Promise<ParsedExternalOrder[]> {
+  const base = normalizeUrl(creds.storeUrl);
+  const auth = buildAuthHeader(creds);
+  const ids = [...new Set(opts.orderIds.map((id) => id.trim()).filter(Boolean))];
+  const collected: WcOrder[] = [];
+
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const qs = new URLSearchParams({
+      per_page: '100',
+      include: chunk.join(','),
+      // `include` alone still applies the default status filter on some stores.
+      status: 'any'
+    });
+    const res = await fetch(`${base}/wp-json/wc/v3/orders?${qs.toString()}`, {
+      headers: { Authorization: auth, 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`WooCommerce orders API error (${res.status}): ${text.slice(0, 300)}`);
+    }
+    const batch = (await res.json()) as WcOrder[];
+    if (Array.isArray(batch)) collected.push(...batch);
+  }
+
+  return collected.map((o) => mapWooOrder(o, { connectionId: opts.connectionId }));
 }

@@ -4,12 +4,15 @@ import { Warehouse } from '@entities/inventory/Warehouse.js';
 import { z } from 'zod';
 import { Location } from '@entities/iam/Location.js';
 import { IsNull } from 'typeorm';
+import { organizationIdForLocation, warehouseTypeError } from '@services/inventory/warehouseTypes.js';
+
+const warehouseTypeSchema = z.string().trim().min(1).max(50);
 
 const createWarehouseSchema = z.object({
   locationId: z.string(),
   code: z.string().min(1),
   name: z.string().min(1),
-  type: z.enum(['main_hub', 'distribution_center', 'store', 'third_party', 'other']),
+  type: warehouseTypeSchema,
   addressLine1: z.string().optional(),
   addressLine2: z.string().optional(),
   city: z.string().optional(),
@@ -24,7 +27,7 @@ const createWarehouseSchema = z.object({
 const updateWarehouseSchema = z.object({
   code: z.string().min(1).optional(),
   name: z.string().min(1).optional(),
-  type: z.enum(['main_hub', 'distribution_center', 'store', 'third_party', 'other']).optional(),
+  type: warehouseTypeSchema.optional(),
   addressLine1: z.string().optional(),
   addressLine2: z.string().optional(),
   city: z.string().optional(),
@@ -114,6 +117,12 @@ export class WarehousesController {
         return;
       }
 
+      const typeError = await warehouseTypeError(await organizationIdForLocation(location.id), parsed.data.type);
+      if (typeError) {
+        res.status(400).json({ error: { message: typeError } });
+        return;
+      }
+
       const repo = AppDataSource.getRepository(Warehouse);
       const existing = await repo.findOne({
         where: { code: parsed.data.code, deletedAt: IsNull() }
@@ -181,6 +190,14 @@ export class WarehousesController {
         
         if (existing) {
           res.status(400).json({ error: { message: 'Warehouse code already exists' } });
+          return;
+        }
+      }
+
+      if (parsed.data.type && parsed.data.type !== item.type) {
+        const typeError = await warehouseTypeError(await organizationIdForLocation(item.location.id), parsed.data.type);
+        if (typeError) {
+          res.status(400).json({ error: { message: typeError } });
           return;
         }
       }

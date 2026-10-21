@@ -58,6 +58,29 @@ export const PROJECT_STATUSES = [
   { value: 'cancelled', label: 'Cancelled' },
 ] as const;
 
+/** Mirrors the API guard: cancelled/completed only move on via an explicit reopen. */
+export const PROJECT_STATUS_TRANSITIONS: Record<string, string[]> = {
+  draft: ['active', 'on_hold', 'cancelled'],
+  active: ['on_hold', 'completed', 'cancelled'],
+  on_hold: ['active', 'completed', 'cancelled'],
+  completed: ['active'],
+  cancelled: ['draft', 'active'],
+};
+
+export function allowedProjectStatuses(current?: string) {
+  const cur = current || 'draft';
+  const next = PROJECT_STATUS_TRANSITIONS[cur] || [];
+  return PROJECT_STATUSES.filter((s) => s.value === cur || next.includes(s.value));
+}
+
+export function projectStatusOptionLabel(current: string | undefined, value: string, label: string) {
+  if (value === current) return `${label} (current)`;
+  if ((current === 'cancelled' || current === 'completed') && (value === 'active' || value === 'draft')) {
+    return `Reopen → ${label}`;
+  }
+  return label;
+}
+
 export const TASK_STATUSES = [
   { value: 'todo', label: 'To Do' },
   { value: 'in_progress', label: 'In Progress' },
@@ -116,7 +139,7 @@ export function statusBadgeClass(status?: string): string {
     case 'draft':
     case 'todo':
     case 'pending':
-      return 'bg-brand/10 text-brand border-brand/25';
+      return 'bg-[#A31F24]/10 text-[#A31F24] border-[#A31F24]/25';
     case 'blocked':
     case 'on_hold':
     case 'missed':
@@ -133,7 +156,7 @@ export function statusBadgeClass(status?: string): string {
 export function progressBarColor(pct?: number | null): string {
   const n = Number(pct) || 0;
   if (n >= 100) return 'bg-emerald-500';
-  if (n >= 60) return 'bg-brand';
+  if (n >= 60) return 'bg-[#A31F24]';
   if (n >= 30) return 'bg-blue-500';
   return 'bg-muted-foreground/40';
 }

@@ -16,8 +16,9 @@ export class Warehouse {
   @Column({ type: 'varchar', length: 255 })
   name!: string;
 
-  @Column({ type: 'enum', enum: ['main_hub', 'distribution_center', 'store', 'third_party', 'other'] })
-  type!: 'main_hub' | 'distribution_center' | 'store' | 'third_party' | 'other';
+  /** Code of a row in warehouse_types for the warehouse's organisation (built-ins: main_hub, distribution_center, store, third_party, other). */
+  @Column({ type: 'varchar', length: 50, default: 'other' })
+  type!: string;
 
   @Column({ name: 'address_line1', type: 'varchar', length: 255, nullable: true })
   addressLine1!: string | null;

@@ -4,6 +4,7 @@ import { Variant } from '@entities/catalog/Variant.js';
 import { CatalogItem } from '@entities/catalog/CatalogItem.js';
 import { z } from 'zod';
 import { uploadFile, deleteFileByUrl } from '@utils/storage.js';
+import { zodMessage } from '@services/catalog/zodMessage.js';
 
 const createVariantSchema = z.object({
   catalogItemId: z.string(),
@@ -102,7 +103,7 @@ export class VariantsController {
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createVariantSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
@@ -145,12 +146,12 @@ export class VariantsController {
       catalogItem,
       variantSku: parsed.data.variantSku,
       name: parsed.data.name ?? null,
-      option1Name: parsed.data.option1Name ?? null,
-      option1Value: parsed.data.option1Value ?? null,
-      option2Name: parsed.data.option2Name ?? null,
-      option2Value: parsed.data.option2Value ?? null,
-      option3Name: parsed.data.option3Name ?? null,
-      option3Value: parsed.data.option3Value ?? null,
+      option1Name: parsed.data.option1Name || null,
+      option1Value: parsed.data.option1Value || null,
+      option2Name: parsed.data.option2Name || null,
+      option2Value: parsed.data.option2Value || null,
+      option3Name: parsed.data.option3Name || null,
+      option3Value: parsed.data.option3Value || null,
       weightValue: parsed.data.weightValue ?? null,
       weightUnit: parsed.data.weightUnit ?? 'kg',
       lengthValue: parsed.data.lengthValue ?? null,
@@ -179,7 +180,7 @@ export class VariantsController {
     const parsed = updateVariantSchema.safeParse(req.body);
     
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
@@ -240,12 +241,12 @@ export class VariantsController {
     // Update fields
     if (parsed.data.variantSku) variant.variantSku = parsed.data.variantSku;
     if (parsed.data.name !== undefined) variant.name = parsed.data.name ?? null;
-    if (parsed.data.option1Name !== undefined) variant.option1Name = parsed.data.option1Name ?? null;
-    if (parsed.data.option1Value !== undefined) variant.option1Value = parsed.data.option1Value ?? null;
-    if (parsed.data.option2Name !== undefined) variant.option2Name = parsed.data.option2Name ?? null;
-    if (parsed.data.option2Value !== undefined) variant.option2Value = parsed.data.option2Value ?? null;
-    if (parsed.data.option3Name !== undefined) variant.option3Name = parsed.data.option3Name ?? null;
-    if (parsed.data.option3Value !== undefined) variant.option3Value = parsed.data.option3Value ?? null;
+    if (parsed.data.option1Name !== undefined) variant.option1Name = parsed.data.option1Name || null;
+    if (parsed.data.option1Value !== undefined) variant.option1Value = parsed.data.option1Value || null;
+    if (parsed.data.option2Name !== undefined) variant.option2Name = parsed.data.option2Name || null;
+    if (parsed.data.option2Value !== undefined) variant.option2Value = parsed.data.option2Value || null;
+    if (parsed.data.option3Name !== undefined) variant.option3Name = parsed.data.option3Name || null;
+    if (parsed.data.option3Value !== undefined) variant.option3Value = parsed.data.option3Value || null;
     if (parsed.data.weightValue !== undefined) variant.weightValue = parsed.data.weightValue ?? null;
     if (parsed.data.weightUnit) variant.weightUnit = parsed.data.weightUnit;
     if (parsed.data.lengthValue !== undefined) variant.lengthValue = parsed.data.lengthValue ?? null;

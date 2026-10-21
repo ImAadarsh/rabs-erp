@@ -28,26 +28,95 @@ function appSecretProof(accessToken: string): string | undefined {
   return crypto.createHmac('sha256', env.META_APP_SECRET).update(accessToken).digest('hex');
 }
 
+const PERMISSION_ERROR_RE =
+  /Cannot call API for app|\(#10\)|\(#200\)|\(#2\d\d\)|does not have (?:the )?permission|requires? (?:the )?['"]?\w+['"]? permission|has not been granted|Permissions? error|not authorized application/i;
+
+export function isMetaPermissionError(message: string, code?: number): boolean {
+  if (/^Meta permission not granted/.test(message || '')) return false;
+  return PERMISSION_ERROR_RE.test(message || '') || code === 10 || (typeof code === 'number' && code >= 200 && code <= 299);
+}
+
+/** Human message for a Graph permission failure instead of Meta's raw "Cannot call API for app … on behalf of user …". */
+export function describeMetaPermissionError(permissions: string[]): string {
+  const list = permissions.length ? permissions.join(', ') : 'a required Meta permission';
+  const it = permissions.length > 1 ? 'them' : 'it';
+  return (
+    `Meta permission not granted: ${list}. Reconnect Meta and approve ${it} on the consent screen. ` +
+    `If ${it} ${permissions.length > 1 ? 'are' : 'is'} already approved, the Meta app needs App Review (Advanced Access) ` +
+    `for ${list} before it works for this account.`
+  );
+}
+
+/** Best-effort mapping of a Graph call to the permission(s) it needs, used to explain permission errors. */
+function permissionsForRequest(method: 'GET' | 'POST' | 'DELETE', path: string, params: GraphParams): string[] {
+  const p = path.toLowerCase();
+  if (/act_|\/adaccounts|\/campaigns|\/adsets|\/ads(\/|$)/.test(p)) return ['ads_read'];
+  if (/\/insights$/.test(p)) return params.metric ? ['pages_read_engagement', 'read_insights'] : ['ads_read'];
+  if (/\/conversations$|\/messages$/.test(p)) {
+    return params.platform === 'instagram' ? ['instagram_manage_messages'] : ['pages_messaging'];
+  }
+  if (/\/media_publish$/.test(p) || (method === 'POST' && /\/media$/.test(p))) return ['instagram_content_publish'];
+  if (/\/media$/.test(p)) return ['instagram_basic'];
+  if (method !== 'GET' && /\/(feed|photos|videos)$/.test(p)) return ['pages_manage_posts'];
+  if (/\/(feed|posts|published_posts)$/.test(p)) return ['pages_read_engagement', 'pages_read_user_content'];
+  return [];
+}
+
 export class MetaGraphError extends Error {
   status: number;
   code?: number;
   type?: string;
   fbtraceId?: string;
   missingPermission?: string;
+  missingPermissions?: string[];
+  permissionError?: boolean;
+  rawMessage?: string;
 
   constructor(
     message: string,
     status = 500,
-    details?: { code?: number; type?: string; fbtrace_id?: string; missingPermission?: string }
+    details?: {
+      code?: number;
+      type?: string;
+      fbtrace_id?: string;
+      missingPermission?: string;
+      missingPermissions?: string[];
+    }
   ) {
-    super(message);
+    const inferred = details?.missingPermission || inferMissingPermission(message);
+    const perms = details?.missingPermissions?.length
+      ? details.missingPermissions
+      : inferred
+        ? [inferred]
+        : [];
+    const permissionError = isMetaPermissionError(message, details?.code);
+    super(permissionError ? describeMetaPermissionError(perms) : message);
     this.name = 'MetaGraphError';
     this.status = status;
     this.code = details?.code;
     this.type = details?.type;
     this.fbtraceId = details?.fbtrace_id;
-    this.missingPermission = details?.missingPermission || inferMissingPermission(message);
+    this.missingPermission = perms[0];
+    this.missingPermissions = perms.length ? perms : undefined;
+    this.permissionError = permissionError || /^Meta permission not granted/.test(message);
+    this.rawMessage = message;
   }
+}
+
+function graphError(
+  method: 'GET' | 'POST' | 'DELETE',
+  path: string,
+  params: GraphParams,
+  status: number,
+  error: any
+): MetaGraphError {
+  const message = error?.message || `Meta Graph ${method} failed (${status})`;
+  const inferred = inferMissingPermission(message);
+  const fromPath = permissionsForRequest(method, path, params);
+  return new MetaGraphError(message, status, {
+    ...error,
+    missingPermissions: inferred ? [inferred] : fromPath
+  });
 }
 
 export function inferMissingPermission(message: string): string | undefined {
@@ -70,12 +139,18 @@ export function inferMissingPermission(message: string): string | undefined {
 }
 
 export function metaErrorBody(error: any) {
-  const message = error?.message || 'Meta request failed';
+  let message = error?.message || 'Meta request failed';
+  const missingPermission = error?.missingPermission || inferMissingPermission(message);
+  if (!error?.permissionError && isMetaPermissionError(message, error?.code)) {
+    message = describeMetaPermissionError(error?.missingPermissions || (missingPermission ? [missingPermission] : []));
+  }
   return {
     error: {
       message,
       code: error?.code,
-      missingPermission: error?.missingPermission || inferMissingPermission(message)
+      missingPermission,
+      missingPermissions: error?.missingPermissions || (missingPermission ? [missingPermission] : undefined),
+      permissionError: !!error?.permissionError || /^Meta permission not granted/.test(message)
     }
   };
 }
@@ -107,11 +182,7 @@ export async function metaGraphGet<T = any>(
   const res = await fetch(url);
   const body = await res.json().catch(() => ({}));
   if (!res.ok || body?.error) {
-    throw new MetaGraphError(
-      body?.error?.message || `Meta Graph GET failed (${res.status})`,
-      res.status,
-      body?.error
-    );
+    throw graphError('GET', path, params, res.status, body?.error);
   }
   return body as T;
 }
@@ -140,11 +211,7 @@ export async function metaGraphPost<T = any>(
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data?.error) {
-    throw new MetaGraphError(
-      data?.error?.message || `Meta Graph POST failed (${res.status})`,
-      res.status,
-      data?.error
-    );
+    throw graphError('POST', path, body, res.status, data?.error);
   }
   return data as T;
 }
@@ -159,11 +226,7 @@ export async function metaGraphDelete<T = any>(
   const res = await fetch(url, { method: 'DELETE' });
   const body = await res.json().catch(() => ({}));
   if (!res.ok || body?.error) {
-    throw new MetaGraphError(
-      body?.error?.message || `Meta Graph DELETE failed (${res.status})`,
-      res.status,
-      body?.error
-    );
+    throw graphError('DELETE', path, params, res.status, body?.error);
   }
   return body as T;
 }

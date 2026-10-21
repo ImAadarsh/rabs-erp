@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { AppDataSource } from '@config/data-source.js';
 import { KpiDefinition } from '@entities/hr/KpiDefinition.js';
 import { z } from 'zod';
+import { zodMessage } from '@services/finance/zodMessage.js';
 import { Organization } from '@entities/iam/Organization.js';
 
 const createKpiDefinitionSchema = z.object({
@@ -93,7 +94,7 @@ export class KpiDefinitionsController {
     try {
       const parsed = createKpiDefinitionSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 
@@ -137,7 +138,7 @@ export class KpiDefinitionsController {
       const parsed = updateKpiDefinitionSchema.safeParse(req.body);
       
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 

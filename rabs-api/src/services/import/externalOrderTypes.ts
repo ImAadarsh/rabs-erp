@@ -20,6 +20,8 @@ export interface ParsedExternalOrderLine {
   sku: string | null;
   /** External product id, used as a fallback lookup via ChannelMapping. */
   externalProductId: string | null;
+  /** Parent product id when `externalProductId` is a variation (product-level mappings). */
+  externalParentProductId?: string | null;
   name: string;
   quantity: number;
   /** Unit price including tax where the channel reports it that way. */
@@ -112,7 +114,7 @@ export interface OrderImportSummary {
   ordersUpdated: number;
   ordersSkipped: number;
   linesCreated: number;
-  /** Lines whose SKU could not be matched to a RABS catalog variant. */
+  /** Lines saved without a catalog variant because their SKU/product could not be matched. */
   linesUnmatched: number;
   paymentsCreated: number;
   paymentsSkipped: number;

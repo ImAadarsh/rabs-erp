@@ -29,9 +29,6 @@ export const env = {
     process.env.GOOGLE_REDIRECT_URI ??
     `${(process.env.PUBLIC_API_URL ?? 'http://localhost:4000').replace(/\/$/, '')}/api/iam/auth/google/callback`,
 
-  // Public origin of this API (no trailing slash)
-  PUBLIC_API_URL: process.env.PUBLIC_API_URL ?? 'http://localhost:4000',
-
   // Frontend
   FRONTEND_URL: process.env.FRONTEND_URL ?? 'http://localhost:3000',
   B2B_WEBSITE_URL: process.env.B2B_WEBSITE_URL ?? 'http://localhost:3001',
@@ -42,6 +39,12 @@ export const env = {
   AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY ?? '',
   AWS_S3_BUCKET_NAME: process.env.AWS_S3_BUCKET_NAME ?? '',
   AWS_S3_BUCKET_URL: process.env.AWS_S3_BUCKET_URL ?? '',
+
+  // File storage: 'local' writes to UPLOADS_DIR and serves at {PUBLIC_API_URL}/uploads; 's3' uses AWS.
+  // Unset → s3 when AWS creds exist, otherwise local.
+  STORAGE_DRIVER: (process.env.STORAGE_DRIVER ?? '').toLowerCase(),
+  UPLOADS_DIR: process.env.UPLOADS_DIR ?? 'uploads',
+  PUBLIC_API_URL: (process.env.PUBLIC_API_URL ?? process.env.META_API_PUBLIC_URL ?? 'http://localhost:4000').replace(/\/$/, ''),
 
   // Encrypts saved Shopify/WooCommerce credentials (falls back to JWT_ACCESS_SECRET)
   CHANNEL_CREDENTIALS_SECRET: process.env.CHANNEL_CREDENTIALS_SECRET ?? '',

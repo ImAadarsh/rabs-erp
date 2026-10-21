@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
 import { listFiscalPeriods, createFiscalPeriod, updateFiscalPeriod, deleteFiscalPeriod, listOrganizations } from '@/lib/api';
@@ -8,8 +9,9 @@ import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
-import { Pencil, Trash2, Plus, X } from 'lucide-react';
+import { Pencil, Trash2, Plus, X, Eye } from 'lucide-react';
 
 type FiscalPeriod = {
   id: string;
@@ -27,6 +29,8 @@ export default function FiscalPeriodsPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'FINANCE']);
+  const { can } = useApiAccess();
+  const canDelete = can('DELETE', '/api/finance/fiscal-periods/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<FiscalPeriod[]>([]);
   const [organizations] = useState<any[]>([]);
@@ -128,7 +132,15 @@ export default function FiscalPeriodsPage() {
   }
 
   const columns = useMemo<ColumnDef<FiscalPeriod>[]>(() => [
-    { accessorKey: 'periodName', header: 'Period Name' },
+    {
+      accessorKey: 'periodName',
+      header: 'Period Name',
+      cell: ({ row }) => (
+        <Link href={`/finance/fiscal-periods/${row.original.id}`} className="font-medium text-primary hover:underline">
+          {row.original.periodName}
+        </Link>
+      )
+    },
     { 
       accessorKey: 'periodType', 
       header: 'Type',
@@ -154,6 +166,9 @@ export default function FiscalPeriodsPage() {
       id: 'actions',
       cell: ({ row }) => (
         <div className="flex gap-2">
+          <Link href={`/finance/fiscal-periods/${row.original.id}`} className="p-1.5 hover:bg-muted rounded" title="View">
+            <Eye size={16} />
+          </Link>
           {!row.original.isClosed && (
             <button onClick={() => {
               setEditing(row.original);
@@ -169,7 +184,7 @@ export default function FiscalPeriodsPage() {
               <Pencil size={16} />
             </button>
           )}
-          {!row.original.isClosed && (
+          {canDelete && !row.original.isClosed && (
             <button onClick={() => setConfirmDel(row.original)} className="p-1.5 hover:bg-muted rounded text-destructive">
               <Trash2 size={16} />
             </button>
@@ -177,7 +192,7 @@ export default function FiscalPeriodsPage() {
         </div>
       )
     }
-  ], []);
+  ], [canDelete]);
 
   if (!hydrated || loading) {
     return (

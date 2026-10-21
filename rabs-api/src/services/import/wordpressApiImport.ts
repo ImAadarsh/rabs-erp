@@ -10,6 +10,7 @@
 
 import type { ParsedProduct, ParsedVariant, ParsedMedia } from './types.js';
 import { slugPart, parseNum, parseIntQty } from './parserUtils.js';
+import { wooApiError } from './wooApiError.js';
 
 export type WordPressAuthMode = 'appPassword' | 'consumerKey';
 
@@ -76,7 +77,7 @@ async function wcFetch<T>(baseUrl: string, auth: string, path: string): Promise<
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`WordPress API error (${res.status}): ${text.slice(0, 300)}`);
+    throw wooApiError('WordPress API error', res.status, text);
   }
   return res.json() as Promise<T>;
 }
@@ -87,7 +88,7 @@ async function wpFetch<T>(baseUrl: string, auth: string, path: string): Promise<
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`WordPress API error (${res.status}): ${text.slice(0, 300)}`);
+    throw wooApiError('WordPress API error', res.status, text);
   }
   const data = await res.json() as T;
   return { data, headers: res.headers };
@@ -121,7 +122,7 @@ export async function testWordPressConnection(
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`WordPress API error (${res.status}): ${text.slice(0, 300)}`);
+    throw wooApiError('WordPress API error', res.status, text);
   }
   const total = res.headers.get('x-wp-total');
   const productCount = total
@@ -186,7 +187,7 @@ export async function browseWordPressProducts(
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`WordPress API error (${res.status}): ${text.slice(0, 300)}`);
+    throw wooApiError('WordPress API error', res.status, text);
   }
   const products = await res.json() as WcProduct[];
   const total = parseInt(res.headers.get('x-wp-total') ?? '0', 10);

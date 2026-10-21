@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import Link from 'next/link';
 import { X, type LucideIcon } from 'lucide-react';
 
 export function AccModal({
@@ -59,10 +60,12 @@ export function AccField({
   label,
   children,
   hint,
+  error,
 }: {
   label: string;
   children: ReactNode;
   hint?: string;
+  error?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -70,7 +73,7 @@ export function AccField({
         {label}
       </label>
       {children}
-      {hint ? <p className="text-[11px] text-muted-foreground">{hint}</p> : null}
+      {error ? <p className="text-[11px] font-medium text-red-600">{error}</p> : hint ? <p className="text-[11px] text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }
@@ -101,7 +104,7 @@ export function AccModalActions({
       <button
         type="submit"
         disabled={submitting}
-        className="flex-1 h-11 rounded-xl bg-brand hover:bg-brand-600 text-white shadow-lg shadow-brand/25 border-none font-semibold disabled:opacity-60"
+        className="flex-1 h-11 rounded-xl bg-brand hover:bg-brand-600 text-white shadow-lg shadow-[#A31F24]/25 border-none font-semibold disabled:opacity-60"
       >
         {submitting ? 'Saving…' : submitLabel}
       </button>
@@ -132,7 +135,10 @@ export function MtdBanner({ children }: { children?: ReactNode }) {
     <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
       <span className="font-semibold">HMRC / MTD:</span>{' '}
       {children ||
-        'Support & structured export only. Live RTI/MTD submission requires HMRC credentials and is not claimed as submitted here.'}
+        'Live MTD submission is not connected yet — nothing is sent to HMRC from here. It needs the business VRN, an HMRC Developer Hub application (client ID + secret) and the business to authorise RABS with HMRC. Until then, export VAT returns and file them through HMRC.'}{' '}
+      <Link href="/accounting/settings#hmrc-mtd" className="font-semibold underline underline-offset-2 whitespace-nowrap">
+        HMRC connection status
+      </Link>
     </div>
   );
 }

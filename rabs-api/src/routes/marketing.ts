@@ -84,6 +84,7 @@ marketingRouter.get('/affiliates', requireRoles(...rw), AffiliateController.list
 marketingRouter.get('/affiliates/clicks', requireRoles(...rw), AffiliateController.listClicks);
 marketingRouter.get('/affiliates/conversions', requireRoles(...rw), AffiliateController.listConversions);
 marketingRouter.get('/affiliates/payouts', requireRoles(...rw), AffiliateController.listPayouts);
+marketingRouter.get('/affiliates/payouts/:payoutId', requireRoles(...rw), AffiliateController.getPayout);
 marketingRouter.patch('/affiliates/payouts/:payoutId', requireRoles(...rw), AffiliateController.updatePayout);
 marketingRouter.get('/affiliates/:id', requireRoles(...rw), AffiliateController.get);
 marketingRouter.post('/affiliates', requireRoles(...rw), AffiliateController.create);

@@ -3,6 +3,7 @@ import { AppDataSource } from '@config/data-source.js';
 import { Barcode } from '@entities/catalog/Barcode.js';
 import { Variant } from '@entities/catalog/Variant.js';
 import { z } from 'zod';
+import { zodMessage } from '@services/catalog/zodMessage.js';
 
 const createBarcodeSchema = z.object({
   variantId: z.string(),
@@ -61,7 +62,7 @@ export class BarcodesController {
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createBarcodeSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
@@ -112,7 +113,7 @@ export class BarcodesController {
     const parsed = updateBarcodeSchema.safeParse(req.body);
     
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 

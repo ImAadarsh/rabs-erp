@@ -36,7 +36,7 @@ export class PurchaseOrderLine {
   @Column({ name: 'quantity_received', type: 'int', default: 0 })
   quantityReceived!: number;
 
-  @Column({ name: 'quantity_pending', type: 'int', generatedType: 'STORED', asExpression: 'quantity - quantity_received' })
+  @Column({ name: 'quantity_pending', type: 'int', generatedType: 'STORED', asExpression: 'quantity - quantity_received', insert: false, update: false })
   quantityPending!: number;
 
   @Column({ type: 'varchar', length: 500, nullable: true })

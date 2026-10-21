@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getSession, clearSession } from '@/lib/auth';
+import { useSession } from '@/hooks/use-session';
+import { allowedPagesFromSession, firstAllowedPath, hasModuleAccess } from '@/lib/page-access';
 import { ModuleCard } from '@/components/module-card';
 import { Header } from '@/components/header';
 import { modules } from '@/data/modules';
@@ -11,6 +13,8 @@ import { motion } from 'framer-motion';
 export default function ModulesPage() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
+  const { session } = useSession();
+  const allowedPages = allowedPagesFromSession(session);
 
   useEffect(() => {
     const s = getSession();
@@ -27,8 +31,9 @@ export default function ModulesPage() {
   };
 
   const filteredModules = modules.filter(m =>
+    hasModuleAccess(m.slug, allowedPages) && (
     m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    m.description.toLowerCase().includes(searchQuery.toLowerCase())
+    m.description.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   return (
@@ -114,7 +119,7 @@ export default function ModulesPage() {
                   }}
                 >
                   <ModuleCard
-                    href={`/${m.slug}/dashboard`}
+                    href={firstAllowedPath(allowedPages, m.slug) ?? `/${m.slug}/dashboard`}
                     title={m.name}
                     description={m.description}
                     Icon={m.icon}

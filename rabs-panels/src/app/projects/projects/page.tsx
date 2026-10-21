@@ -7,7 +7,7 @@ import { Header } from '@/components/header';
 import { RichDataTable } from '@/components/rich-data-table';
 import { FilterBar, type FilterField } from '@/components/filter-bar';
 import { useSession } from '@/hooks/use-session';
-import { listPmProjects, createPmProject, listCustomers, listUsers } from '@/lib/api';
+import { listPmProjects, createPmProject, listCustomers, listUserOptions } from '@/lib/api';
 import {
   formatDate, formatMoney, pmApiError, progressBarColor, PROJECT_STATUSES,
   statusBadgeClass, userLabel,
@@ -88,7 +88,7 @@ export default function ProjectsListPage() {
       try {
         const [cust, us] = await Promise.all([
           listCustomers({ organizationId: orgId, limit: 200 }),
-          listUsers(),
+          listUserOptions(),
         ]);
         setCustomers(cust.data || []);
         setUsers(us.data || []);

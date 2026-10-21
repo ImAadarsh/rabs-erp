@@ -20,8 +20,11 @@ import {
   getGeneralLedger,
   getTrialBalance,
   listAccFiscalPeriods,
+  listLedgerAccountTypes,
+  DEFAULT_LEDGER_ACCOUNT_TYPES,
+  type LedgerAccountTypeOption,
 } from '@/lib/accounting-api';
-import { formatMoney, formatDate, statusBadgeClass, accApiError, printElement, downloadCsv } from '@/lib/accounting-utils';
+import { formatMoney, formatDate, statusBadgeClass, accApiError, printElement, printTable, downloadCsv, type PrintColumn } from '@/lib/accounting-utils';
 import { AccModal, AccField, AccModalActions, AccCreateButton, accInputClass } from '@/components/accounting/acc-modal';
 import { ColumnDef } from '@tanstack/react-table';
 import { Plus, Printer, Download } from 'lucide-react';
@@ -46,6 +49,8 @@ export default function AccountingLedgerPage() {
   const [journals, setJournals] = useState<any[]>([]);
   const [glLines, setGlLines] = useState<any[]>([]);
   const [tbRows, setTbRows] = useState<any[]>([]);
+  const [accountTypes, setAccountTypes] = useState<LedgerAccountTypeOption[]>(DEFAULT_LEDGER_ACCOUNT_TYPES);
+  const [tbTotals, setTbTotals] = useState<{ debit: number; credit: number; from?: string; to?: string }>({ debit: 0, credit: 0 });
   const [periods, setPeriods] = useState<any[]>([]);
   const [openAcc, setOpenAcc] = useState(false);
   const [openJe, setOpenJe] = useState(false);
@@ -74,6 +79,7 @@ export default function AccountingLedgerPage() {
     if (!orgId) return;
     setLoading(true);
     try {
+      listLedgerAccountTypes(orgId).then(setAccountTypes);
       const [coa, led, jes, gl, tb, fp] = await Promise.all([
         listAccChartOfAccounts(orgId),
         listAccLedgerAccounts(orgId),
@@ -85,8 +91,34 @@ export default function AccountingLedgerPage() {
       setCharts(coa.data || []);
       setAccounts(led.data || []);
       setJournals(jes.data || []);
-      setGlLines((gl.data as any)?.lines || []);
-      setTbRows((tb.data as any)?.rows || []);
+      const glRaw: any[] = Array.isArray(gl.data) ? gl.data : (gl.data as any)?.lines || [];
+      setGlLines(
+        glRaw.map((l) => ({
+          entryDate: l.entryDate ?? l.entry_date,
+          journalNumber: l.journalNumber ?? l.journal_number,
+          accountCode: l.accountCode ?? l.account_code,
+          accountName: l.accountName ?? l.account_name,
+          description: l.description ?? l.line_desc ?? l.je_desc,
+          debit: Number(l.debit ?? l.debit_amount ?? 0),
+          credit: Number(l.credit ?? l.credit_amount ?? 0),
+        }))
+      );
+      const tbData = (tb.data as any) || {};
+      const tbList: any[] = tbData.accounts || tbData.rows || [];
+      setTbRows(
+        tbList.map((r) => ({
+          ...r,
+          debit: Number(r.debit || 0),
+          credit: Number(r.credit || 0),
+          net: Number(r.debit || 0) - Number(r.credit || 0),
+        }))
+      );
+      setTbTotals({
+        debit: Number(tbData.totalDebit ?? tbList.reduce((s, r) => s + Number(r.debit || 0), 0)),
+        credit: Number(tbData.totalCredit ?? tbList.reduce((s, r) => s + Number(r.credit || 0), 0)),
+        from: tbData.from,
+        to: tbData.to,
+      });
       setPeriods(fp.data || []);
       if ((coa.data || [])[0]) setAccForm((f) => ({ ...f, chartOfAccountsId: f.chartOfAccountsId || coa.data[0].id }));
       if ((fp.data || [])[0]) setJeForm((f) => ({ ...f, fiscalPeriodId: f.fiscalPeriodId || fp.data[0].id }));
@@ -191,15 +223,24 @@ export default function AccountingLedgerPage() {
     }
   }
 
-  async function onPost(id: string) {
-    try {
-      await postAccJournal(id);
-      toast.success('Journal posted');
-      await load();
-    } catch (err) {
-      toast.error(accApiError(err));
-    }
-  }
+  const [postingId, setPostingId] = useState<string | null>(null);
+
+  const onPost = useCallback(
+    async (id: string) => {
+      setPostingId(String(id));
+      try {
+        await postAccJournal(id);
+        setJournals((prev) => prev.map((j) => (String(j.id) === String(id) ? { ...j, status: 'posted' } : j)));
+        toast.success('Journal posted');
+        await load();
+      } catch (err) {
+        toast.error(accApiError(err, 'Failed to post journal'));
+      } finally {
+        setPostingId(null);
+      }
+    },
+    [load]
+  );
 
   const coaCols = useMemo<ColumnDef<any>[]>(
     () => [
@@ -228,14 +269,18 @@ export default function AccountingLedgerPage() {
         header: '',
         cell: ({ row }) =>
           row.original.status === 'draft' ? (
-            <button type="button" className="text-xs font-semibold text-brand hover:underline" onClick={() => onPost(row.original.id)}>
-              Post
+            <button
+              type="button"
+              disabled={postingId !== null}
+              className="text-xs font-semibold text-brand hover:underline disabled:opacity-50 disabled:no-underline"
+              onClick={() => onPost(row.original.id)}
+            >
+              {postingId === String(row.original.id) ? 'Posting…' : 'Post'}
             </button>
           ) : null,
       },
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [journals]
+    [onPost, postingId]
   );
 
   const glCols = useMemo<ColumnDef<any>[]>(
@@ -254,31 +299,79 @@ export default function AccountingLedgerPage() {
     () => [
       { accessorKey: 'accountCode', header: 'Code', cell: ({ row }) => <span className="font-mono text-xs">{row.original.accountCode}</span> },
       { accessorKey: 'accountName', header: 'Account' },
-      { accessorKey: 'debit', header: 'Debit', cell: ({ row }) => formatMoney(row.original.debit) },
-      { accessorKey: 'credit', header: 'Credit', cell: ({ row }) => formatMoney(row.original.credit) },
-      { accessorKey: 'balance', header: 'Balance', cell: ({ row }) => formatMoney(row.original.balance) },
+      { accessorKey: 'accountType', header: 'Type', cell: ({ row }) => <span className="capitalize">{String(row.original.accountType || '').replace(/_/g, ' ')}</span> },
+      { accessorKey: 'debit', header: 'Debit', cell: ({ row }) => (row.original.debit ? formatMoney(row.original.debit) : '—') },
+      { accessorKey: 'credit', header: 'Credit', cell: ({ row }) => (row.original.credit ? formatMoney(row.original.credit) : '—') },
+      {
+        accessorKey: 'net',
+        header: 'Balance',
+        cell: ({ row }) => {
+          const n = Number(row.original.net || 0);
+          return n === 0 ? '—' : `${formatMoney(Math.abs(n))} ${n > 0 ? 'Dr' : 'Cr'}`;
+        },
+      },
     ],
     []
   );
 
-  function printTb() {
-    const rows = tbRows
-      .map(
-        (r) =>
-          `<tr><td>${r.accountCode || ''}</td><td>${r.accountName || ''}</td><td class="num">${formatMoney(r.debit)}</td><td class="num">${formatMoney(r.credit)}</td><td class="num">${formatMoney(r.balance)}</td></tr>`
-      )
-      .join('');
-    printElement(
-      'Trial Balance',
-      `<table><thead><tr><th>Code</th><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead><tbody>${rows}</tbody></table>`
-    );
+  const tbDiff = Math.round((tbTotals.debit - tbTotals.credit) * 100) / 100;
+  const tbPeriod = tbTotals.from && tbTotals.to ? `Period ${formatDate(tbTotals.from)} – ${formatDate(tbTotals.to)} · posted journals only` : undefined;
+  const balanceLabel = (n: number) => (n === 0 ? '—' : `${formatMoney(Math.abs(n))} ${n > 0 ? 'Dr' : 'Cr'}`);
+  const typeLabel = (t: unknown) => String(t || '').replace(/_/g, ' ');
+
+  /** One definition per tab drives both Print and CSV so they always match what is on screen. */
+  function tabReport(): { title: string; file: string; subtitle?: string; columns: PrintColumn[]; rows: (string | number)[][]; csvRows: (string | number)[][]; footer: (string | number)[][]; csvFooter: (string | number)[][] } {
+    if (tab === 'coa') {
+      const rows = accounts.map((a) => [a.accountCode || '', a.accountName || '', typeLabel(a.accountType), a.normalBalance || '', a.isActive === false ? 'Inactive' : 'Active']);
+      return { title: 'Chart of Accounts', file: 'chart-of-accounts.csv', columns: [{ label: 'Code' }, { label: 'Name' }, { label: 'Type' }, { label: 'Normal balance' }, { label: 'Status' }], rows, csvRows: rows, footer: [], csvFooter: [] };
+    }
+    if (tab === 'journals') {
+      const rows = journals.map((j) => [j.journalNumber || '', formatDate(j.entryDate), j.description || '', j.sourceType || 'manual', j.status || '']);
+      return { title: 'Journals', file: 'journals.csv', columns: [{ label: 'Journal #' }, { label: 'Date' }, { label: 'Description' }, { label: 'Source' }, { label: 'Status' }], rows, csvRows: rows, footer: [], csvFooter: [] };
+    }
+    if (tab === 'gl') {
+      const dr = glLines.reduce((s, l) => s + l.debit, 0);
+      const cr = glLines.reduce((s, l) => s + l.credit, 0);
+      return {
+        title: 'General Ledger',
+        file: 'general-ledger.csv',
+        columns: [{ label: 'Date' }, { label: 'Journal' }, { label: 'Code' }, { label: 'Account' }, { label: 'Description' }, { label: 'Debit', num: true }, { label: 'Credit', num: true }],
+        rows: glLines.map((l) => [formatDate(l.entryDate), l.journalNumber || '', l.accountCode || '', l.accountName || '', l.description || '', formatMoney(l.debit), formatMoney(l.credit)]),
+        csvRows: glLines.map((l) => [l.entryDate ? String(l.entryDate).slice(0, 10) : '', l.journalNumber || '', l.accountCode || '', l.accountName || '', l.description || '', l.debit, l.credit]),
+        footer: [['', '', '', 'Total', '', formatMoney(dr), formatMoney(cr)]],
+        csvFooter: [['', '', '', 'Total', '', Math.round(dr * 100) / 100, Math.round(cr * 100) / 100]],
+      };
+    }
+    return {
+      title: 'Trial Balance',
+      file: 'trial-balance.csv',
+      subtitle: tbPeriod,
+      columns: [{ label: 'Code' }, { label: 'Account' }, { label: 'Type' }, { label: 'Debit', num: true }, { label: 'Credit', num: true }, { label: 'Balance', num: true }],
+      rows: tbRows.map((r) => [r.accountCode || '', r.accountName || '', typeLabel(r.accountType), r.debit ? formatMoney(r.debit) : '—', r.credit ? formatMoney(r.credit) : '—', balanceLabel(r.net)]),
+      csvRows: tbRows.map((r) => [r.accountCode || '', r.accountName || '', typeLabel(r.accountType), r.debit, r.credit, r.net]),
+      footer: [
+        ['', 'Total', '', formatMoney(tbTotals.debit), formatMoney(tbTotals.credit), ''],
+        ['', tbDiff === 0 ? 'Balanced' : 'Difference (Dr − Cr)', '', '', '', tbDiff === 0 ? '—' : formatMoney(tbDiff)],
+      ],
+      csvFooter: [
+        ['', 'Total', '', tbTotals.debit, tbTotals.credit, ''],
+        ['', 'Difference (Dr - Cr)', '', '', '', tbDiff],
+      ],
+    };
   }
 
-  function csvTb() {
-    downloadCsv('trial-balance.csv', [
-      ['Code', 'Account', 'Debit', 'Credit', 'Balance'],
-      ...tbRows.map((r) => [r.accountCode, r.accountName, r.debit, r.credit, r.balance]),
-    ]);
+  function onPrint() {
+    const r = tabReport();
+    if (!r.rows.length) {
+      toast.error(`Nothing to print — ${r.title} has no rows`);
+      return;
+    }
+    printElement(r.title, printTable(r.columns, r.rows, r.footer), r.subtitle);
+  }
+
+  function onCsv() {
+    const r = tabReport();
+    downloadCsv(r.file, [r.columns.map((c) => c.label), ...r.csvRows, ...r.csvFooter]);
   }
 
   return (
@@ -316,22 +409,36 @@ export default function AccountingLedgerPage() {
                 }}
               />
             )}
-            {tab === 'tb' && (
-              <div className="flex gap-2">
-                <button type="button" onClick={printTb} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:bg-muted">
-                  <Printer size={16} /> Print
-                </button>
-                <button type="button" onClick={csvTb} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:bg-muted">
-                  <Download size={16} /> CSV
-                </button>
-              </div>
-            )}
+            <div className="flex gap-2">
+              <button type="button" onClick={onPrint} disabled={loading} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50">
+                <Printer size={16} /> Print
+              </button>
+              <button type="button" onClick={onCsv} disabled={loading} className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50">
+                <Download size={16} /> CSV
+              </button>
+            </div>
           </div>
 
           {tab === 'coa' && <RichDataTable columns={coaCols} data={accounts} />}
           {tab === 'journals' && <RichDataTable columns={jeCols} data={journals} />}
           {tab === 'gl' && <RichDataTable columns={glCols} data={glLines} />}
-          {tab === 'tb' && <RichDataTable columns={tbCols} data={tbRows} />}
+          {tab === 'tb' && (
+            <>
+              <RichDataTable columns={tbCols} data={tbRows} />
+              <div className="flex flex-wrap items-center justify-end gap-6 rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm">
+                {tbTotals.from && tbTotals.to ? (
+                  <span className="mr-auto text-muted-foreground">
+                    Period {formatDate(tbTotals.from)} – {formatDate(tbTotals.to)} · posted journals only
+                  </span>
+                ) : null}
+                <span>Total debit <strong className="tabular-nums">{formatMoney(tbTotals.debit)}</strong></span>
+                <span>Total credit <strong className="tabular-nums">{formatMoney(tbTotals.credit)}</strong></span>
+                <span className={statusBadgeClass(Math.abs(tbTotals.debit - tbTotals.credit) < 0.01 ? 'posted' : 'overdue')}>
+                  {Math.abs(tbTotals.debit - tbTotals.credit) < 0.01 ? 'Balanced' : `Out by ${formatMoney(Math.abs(tbTotals.debit - tbTotals.credit))}`}
+                </span>
+              </div>
+            </>
+          )}
         </main>
       </div>
 
@@ -340,9 +447,16 @@ export default function AccountingLedgerPage() {
           <AccField label="Account code"><input className={accInputClass} value={accForm.accountCode} onChange={(e) => setAccForm({ ...accForm, accountCode: e.target.value })} required /></AccField>
           <AccField label="Account name"><input className={accInputClass} value={accForm.accountName} onChange={(e) => setAccForm({ ...accForm, accountName: e.target.value })} required /></AccField>
           <AccField label="Type">
-            <select className={accInputClass} value={accForm.accountType} onChange={(e) => setAccForm({ ...accForm, accountType: e.target.value })}>
-              {['asset', 'liability', 'equity', 'revenue', 'expense', 'cost_of_goods_sold'].map((t) => (
-                <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
+            <select
+              className={accInputClass}
+              value={accForm.accountType}
+              onChange={(e) => {
+                const t = accountTypes.find((x) => x.value === e.target.value);
+                setAccForm({ ...accForm, accountType: e.target.value, normalBalance: t?.normalBalance || accForm.normalBalance });
+              }}
+            >
+              {accountTypes.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
               ))}
             </select>
           </AccField>

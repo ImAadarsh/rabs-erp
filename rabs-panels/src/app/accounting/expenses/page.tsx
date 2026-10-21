@@ -8,10 +8,10 @@ import { Header } from '@/components/header';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
-import { listAccExpenses, createAccExpense, approveAccExpense } from '@/lib/accounting-api';
-import { listEmployees } from '@/lib/api';
-import { formatMoney, formatDate, statusBadgeClass, accApiError } from '@/lib/accounting-utils';
+import { listAccExpenses, createAccExpense, approveAccExpense, rejectAccExpense, listAccExpenseEmployees } from '@/lib/accounting-api';
+import { formatMoney, formatDate, statusBadgeClass, accApiError, accFieldErrors } from '@/lib/accounting-utils';
 import { AccModal, AccField, AccModalActions, AccCreateButton, accInputClass } from '@/components/accounting/acc-modal';
+import { FileUploadField } from '@/components/file-upload-field';
 import { ColumnDef } from '@tanstack/react-table';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
@@ -26,22 +26,27 @@ export default function AccountingExpensesPage() {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const orgId = session?.user?.organizationId;
-  const [form, setForm] = useState({
+  const emptyForm = () => ({
     employeeId: '',
     expenseDate: new Date().toISOString().slice(0, 10),
     category: 'travel',
     description: '',
     amount: '',
     vatAmount: '0',
-    receiptUrl: '',
+    receiptUrls: [] as string[],
   });
+  const [form, setForm] = useState(emptyForm);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     if (!orgId) return;
     try {
       const [ex, emp] = await Promise.all([
         listAccExpenses(orgId),
-        listEmployees({ organizationId: orgId }).catch(() => ({ data: [] })),
+        listAccExpenseEmployees(orgId).catch((err) => {
+          toast.error(accApiError(err, 'Could not load employees'));
+          return { data: [] as any[] };
+        }),
       ]);
       setRows(ex.data || []);
       setStub(Boolean((ex as any)._stub));
@@ -63,6 +68,14 @@ export default function AccountingExpensesPage() {
   async function onCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!orgId) return;
+    const next: Record<string, string> = {};
+    if (!form.expenseDate) next.expenseDate = 'Date is required';
+    if (!(Number(form.amount) > 0)) next.amount = 'Amount must be greater than 0';
+    if (Number(form.vatAmount || 0) < 0) next.taxAmount = 'VAT cannot be negative';
+    if (Number(form.vatAmount || 0) > Number(form.amount || 0)) next.taxAmount = 'VAT cannot exceed the amount';
+    if (!form.description.trim()) next.description = 'Description is required';
+    setErrors(next);
+    if (Object.keys(next).length) return;
     setSaving(true);
     try {
       await createAccExpense({
@@ -70,31 +83,48 @@ export default function AccountingExpensesPage() {
         employeeId: form.employeeId || undefined,
         expenseDate: form.expenseDate,
         category: form.category,
-        description: form.description,
+        description: form.description.trim(),
         amount: Number(form.amount),
-        vatAmount: Number(form.vatAmount || 0),
-        receiptUrl: form.receiptUrl || undefined,
-        status: 'pending',
+        taxAmount: Number(form.vatAmount || 0),
+        receiptUrl: form.receiptUrls[0] || undefined,
       });
-      toast.success('Expense submitted');
+      toast.success('Expense created');
       setOpen(false);
       await load();
     } catch (err) {
-      toast.error(accApiError(err, 'Expenses require /api/accounting'));
+      setErrors(accFieldErrors(err));
+      toast.error(accApiError(err, 'Failed to create expense'));
     } finally {
       setSaving(false);
     }
   }
 
-  async function onApprove(id: string) {
-    try {
-      await approveAccExpense(id);
-      toast.success('Expense approved');
-      await load();
-    } catch (err) {
-      toast.error(accApiError(err));
-    }
-  }
+  const [pending, setPending] = useState<{ id: string; action: 'approve' | 'reject' } | null>(null);
+
+  const onStatusAction = useCallback(
+    async (row: any, action: 'approve' | 'reject') => {
+      let reason: string | undefined;
+      if (action === 'reject') {
+        const input = window.prompt(`Reject expense "${row.description}"? Optional reason:`, '');
+        if (input === null) return;
+        reason = input.trim() || undefined;
+      }
+      const id = String(row.id);
+      setPending({ id, action });
+      try {
+        const res: any = action === 'approve' ? await approveAccExpense(id) : await rejectAccExpense(id, reason);
+        const updated = res?.data || { status: action === 'approve' ? 'approved' : 'rejected' };
+        setRows((prev) => prev.map((r) => (String(r.id) === id ? { ...r, ...updated, employee: r.employee, vatCode: r.vatCode } : r)));
+        toast.success(action === 'approve' ? 'Expense approved and posted to the ledger' : 'Expense rejected');
+        await load();
+      } catch (err) {
+        toast.error(accApiError(err, `Failed to ${action} expense`));
+      } finally {
+        setPending(null);
+      }
+    },
+    [load]
+  );
 
   const columns = useMemo<ColumnDef<any>[]>(
     () => [
@@ -126,16 +156,33 @@ export default function AccountingExpensesPage() {
       {
         id: 'actions',
         header: '',
-        cell: ({ row }) =>
-          row.original.status === 'pending' ? (
-            <button type="button" className="text-xs font-semibold text-brand hover:underline" onClick={() => onApprove(row.original.id)}>
-              Approve
-            </button>
-          ) : null,
+        cell: ({ row }) => {
+          if (!['draft', 'submitted', 'pending'].includes(row.original.status)) return null;
+          const busy = pending?.id === String(row.original.id);
+          return (
+            <div className="flex gap-3">
+              <button
+                type="button"
+                disabled={pending !== null}
+                className="text-xs font-semibold text-brand hover:underline disabled:opacity-50 disabled:no-underline"
+                onClick={() => onStatusAction(row.original, 'approve')}
+              >
+                {busy && pending?.action === 'approve' ? 'Approving…' : 'Approve'}
+              </button>
+              <button
+                type="button"
+                disabled={pending !== null}
+                className="text-xs text-red-600 hover:underline disabled:opacity-50 disabled:no-underline"
+                onClick={() => onStatusAction(row.original, 'reject')}
+              >
+                {busy && pending?.action === 'reject' ? 'Rejecting…' : 'Reject'}
+              </button>
+            </div>
+          );
+        },
       },
     ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [onStatusAction, pending]
   );
 
   return (
@@ -150,18 +197,25 @@ export default function AccountingExpensesPage() {
             </p>
           ) : null}
           <div className="flex justify-between items-center flex-wrap gap-3">
-            <p className="text-sm text-muted-foreground">Employee expenses with receipt URL and approval.</p>
-            <AccCreateButton label="Create Expense" onClick={() => setOpen(true)} />
+            <p className="text-sm text-muted-foreground">Employee expenses with receipt upload and approval.</p>
+            <AccCreateButton
+              label="Create Expense"
+              onClick={() => {
+                setForm(emptyForm());
+                setErrors({});
+                setOpen(true);
+              }}
+            />
           </div>
           <RichDataTable columns={columns} data={rows} searchPlaceholder="Search expenses…" />
         </main>
       </div>
 
       <AccModal open={open} onClose={() => setOpen(false)} title="Create Expense" icon={Plus} wide>
-        <form onSubmit={onCreate} className="space-y-3">
-          <AccField label="Employee">
+        <form onSubmit={onCreate} className="space-y-3" noValidate>
+          <AccField label="Employee" error={errors.employeeId} hint={employees.length ? undefined : 'No employees found for this organisation'}>
             <select className={accInputClass} value={form.employeeId} onChange={(e) => setForm({ ...form, employeeId: e.target.value })}>
-              <option value="">Select…</option>
+              <option value="">{employees.length ? 'Select…' : 'No employees'}</option>
               {employees.map((e) => (
                 <option key={e.id} value={e.id}>
                   {[e.firstName, e.lastName].filter(Boolean).join(' ') || e.employeeNumber}
@@ -170,7 +224,7 @@ export default function AccountingExpensesPage() {
             </select>
           </AccField>
           <div className="grid grid-cols-2 gap-3">
-            <AccField label="Date"><input type="date" className={accInputClass} value={form.expenseDate} onChange={(e) => setForm({ ...form, expenseDate: e.target.value })} required /></AccField>
+            <AccField label="Date" error={errors.expenseDate}><input type="date" className={accInputClass} value={form.expenseDate} onChange={(e) => setForm({ ...form, expenseDate: e.target.value })} required /></AccField>
             <AccField label="Category">
               <select className={accInputClass} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
                 {['travel', 'meals', 'office', 'mileage', 'other'].map((c) => (
@@ -178,11 +232,18 @@ export default function AccountingExpensesPage() {
                 ))}
               </select>
             </AccField>
-            <AccField label="Amount"><input type="number" step="0.01" className={accInputClass} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required /></AccField>
-            <AccField label="VAT"><input type="number" step="0.01" className={accInputClass} value={form.vatAmount} onChange={(e) => setForm({ ...form, vatAmount: e.target.value })} /></AccField>
+            <AccField label="Amount (gross)" error={errors.amount}><input type="number" step="0.01" min="0.01" className={accInputClass} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} required /></AccField>
+            <AccField label="VAT" error={errors.taxAmount}><input type="number" step="0.01" min="0" className={accInputClass} value={form.vatAmount} onChange={(e) => setForm({ ...form, vatAmount: e.target.value })} /></AccField>
           </div>
-          <AccField label="Description"><input className={accInputClass} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required /></AccField>
-          <AccField label="Receipt URL" hint="S3 or public URL"><input className={accInputClass} value={form.receiptUrl} onChange={(e) => setForm({ ...form, receiptUrl: e.target.value })} placeholder="https://…" /></AccField>
+          <AccField label="Description" error={errors.description}><input className={accInputClass} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} required /></AccField>
+          <AccField label="Receipt" error={errors.receiptUrl} hint="Image or PDF">
+            <FileUploadField
+              value={form.receiptUrls}
+              onChange={(urls) => setForm((f) => ({ ...f, receiptUrls: urls }))}
+              folder="accounting/receipts"
+              accept="image/*,.pdf"
+            />
+          </AccField>
           <AccModalActions onCancel={() => setOpen(false)} submitLabel="Submit expense" submitting={saving} />
         </form>
       </AccModal>

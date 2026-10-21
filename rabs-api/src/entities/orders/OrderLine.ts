@@ -14,9 +14,10 @@ export class OrderLine {
   @JoinColumn({ name: 'order_id' })
   order!: Order;
 
-  @ManyToOne(() => Variant)
+  /** Null for channel lines that could not be matched to a catalog variant. */
+  @ManyToOne(() => Variant, { nullable: true })
   @JoinColumn({ name: 'variant_id' })
-  variant!: Variant;
+  variant!: Variant | null;
 
   @Column({ type: 'varchar', length: 100 })
   sku!: string;

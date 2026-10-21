@@ -20,6 +20,7 @@ import { auditMiddleware } from '@middlewares/audit.js';
 import { requireRoles } from '@middlewares/rbac.js';
 import { uploadSingle, uploadCsv, uploadExcel } from '@middlewares/upload.js';
 import { InventoryExcelImportController } from '@controllers/catalog/inventoryExcelImport.controller.js';
+import { PriceListImportController } from '@controllers/catalog/priceListImport.controller.js';
 
 export const catalogRouter = Router();
 
@@ -37,8 +38,8 @@ catalogRouter.patch('/items/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), CatalogI
 catalogRouter.delete('/items/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), CatalogItemsController.remove);
 
 // Variants
-catalogRouter.get('/variants', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'SALES_REP'), VariantsController.list);
-catalogRouter.get('/variants/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'SALES_REP'), VariantsController.get);
+catalogRouter.get('/variants', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'SALES_REP', 'PURCHASING', 'FINANCE'), VariantsController.list);
+catalogRouter.get('/variants/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'SALES_REP', 'PURCHASING'), VariantsController.get);
 catalogRouter.post('/variants', requireRoles('ADMIN', 'SUPER_ADMIN'), uploadSingle('image'), VariantsController.create);
 catalogRouter.patch('/variants/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), uploadSingle('image'), VariantsController.update);
 catalogRouter.delete('/variants/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), VariantsController.remove);
@@ -51,7 +52,7 @@ catalogRouter.patch('/barcodes/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), Barco
 catalogRouter.delete('/barcodes/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), BarcodesController.remove);
 
 // Tax Codes
-catalogRouter.get('/tax-codes', requireRoles('ADMIN', 'SUPER_ADMIN', 'FINANCE'), TaxCodesController.list);
+catalogRouter.get('/tax-codes', requireRoles('ADMIN', 'SUPER_ADMIN', 'FINANCE', 'WAREHOUSE_MANAGER', 'SALES_REP'), TaxCodesController.list);
 catalogRouter.get('/tax-codes/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'FINANCE'), TaxCodesController.get);
 catalogRouter.post('/tax-codes', requireRoles('ADMIN', 'SUPER_ADMIN'), TaxCodesController.create);
 catalogRouter.patch('/tax-codes/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), TaxCodesController.update);
@@ -59,6 +60,8 @@ catalogRouter.delete('/tax-codes/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), Tax
 
 // Price Lists
 catalogRouter.get('/price-lists', requireRoles('ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'FINANCE'), PriceListsController.list);
+catalogRouter.get('/price-lists/import-template', requireRoles('ADMIN', 'SUPER_ADMIN'), PriceListImportController.template);
+catalogRouter.post('/price-lists/:id/import', requireRoles('ADMIN', 'SUPER_ADMIN'), uploadSingle('file'), PriceListImportController.import);
 catalogRouter.get('/price-lists/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'FINANCE'), PriceListsController.get);
 catalogRouter.post('/price-lists', requireRoles('ADMIN', 'SUPER_ADMIN'), PriceListsController.create);
 catalogRouter.patch('/price-lists/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), PriceListsController.update);
@@ -95,8 +98,8 @@ catalogRouter.delete('/bundle-items/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), 
 // Promotional Prices
 catalogRouter.get('/promotional-prices', requireRoles('ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'FINANCE'), PromotionalPricesController.list);
 catalogRouter.get('/promotional-prices/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'FINANCE'), PromotionalPricesController.get);
-catalogRouter.post('/promotional-prices', requireRoles('ADMIN', 'SUPER_ADMIN'), PromotionalPricesController.create);
-catalogRouter.patch('/promotional-prices/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), PromotionalPricesController.update);
+catalogRouter.post('/promotional-prices', requireRoles('ADMIN', 'SUPER_ADMIN', 'SALES_REP'), PromotionalPricesController.create);
+catalogRouter.patch('/promotional-prices/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'SALES_REP'), PromotionalPricesController.update);
 catalogRouter.delete('/promotional-prices/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), PromotionalPricesController.remove);
 
 // Channel Mappings
@@ -158,7 +161,7 @@ catalogRouter.post('/inventory-import/execute', requireRoles('ADMIN', 'SUPER_ADM
 // Compliance Documents
 catalogRouter.get('/compliance-documents', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER'), ComplianceDocumentsController.list);
 catalogRouter.get('/compliance-documents/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER'), ComplianceDocumentsController.get);
-catalogRouter.post('/compliance-documents', requireRoles('ADMIN', 'SUPER_ADMIN'), uploadSingle('file'), ComplianceDocumentsController.create);
-catalogRouter.patch('/compliance-documents/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), uploadSingle('file'), ComplianceDocumentsController.update);
+catalogRouter.post('/compliance-documents', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER'), uploadSingle('file'), ComplianceDocumentsController.create);
+catalogRouter.patch('/compliance-documents/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER'), uploadSingle('file'), ComplianceDocumentsController.update);
 catalogRouter.delete('/compliance-documents/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), ComplianceDocumentsController.remove);
 

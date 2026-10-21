@@ -33,6 +33,7 @@ import { GoodTillApiClient } from '@services/import/goodtillApiClient.js';
 import { deleteEposProducts } from '@services/import/goodtillProductDelete.js';
 import { runProductImport } from '@services/import/productImportService.js';
 import { summarizeProducts } from '@services/import/parserUtils.js';
+import { zodMessage } from '@services/catalog/zodMessage.js';
 
 const createGoodTillSchema = z.object({
   organizationId: z.string().min(1),
@@ -100,7 +101,7 @@ export class GoodTillChannelsController {
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createGoodTillSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 

@@ -6,6 +6,7 @@ import { Order } from '@entities/orders/Order.js';
 import { Variant } from '@entities/catalog/Variant.js';
 import { Warehouse } from '@entities/inventory/Warehouse.js';
 import { IsNull } from 'typeorm';
+import { inactiveWarehouseError } from '@services/inventory/locationStatus.js';
 
 const createOrderLineSchema = z.object({
   orderId: z.string(),
@@ -120,6 +121,11 @@ export class OrderLinesController {
           res.status(400).json({ error: { message: 'Invalid warehouseId' } });
           return;
         }
+        const warehouseError = inactiveWarehouseError(warehouse);
+        if (warehouseError) {
+          res.status(400).json({ error: { message: warehouseError } });
+          return;
+        }
       }
 
       const repo = AppDataSource.getRepository(OrderLine);
@@ -179,6 +185,11 @@ export class OrderLinesController {
         const warehouse = await whRepo.findOne({ where: { id: parsed.data.warehouseId, deletedAt: IsNull() } });
         if (!warehouse) {
           res.status(400).json({ error: { message: 'Invalid warehouseId' } });
+          return;
+        }
+        const warehouseError = warehouse.id !== item.warehouse?.id ? inactiveWarehouseError(warehouse) : null;
+        if (warehouseError) {
+          res.status(400).json({ error: { message: warehouseError } });
           return;
         }
         item.warehouse = warehouse;

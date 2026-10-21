@@ -16,7 +16,7 @@ import {
   trackDhlShipment,
 } from '@/lib/api';
 import { toast } from 'sonner';
-import { ExternalLink, FileText, MapPin, Plus, RefreshCw, Truck, XCircle } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Eye, FileText, MapPin, Plus, RefreshCw, Truck, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { CrmModal, CrmField, CrmModalActions, crmInputClass } from '@/components/crm/crm-modal';
 
@@ -126,7 +126,15 @@ export default function FulfillmentShipmentsPage() {
         ),
     },
     { accessorKey: 'carrier', header: 'Carrier' },
-    { accessorKey: 'trackingNumber', header: 'Tracking' },
+    {
+      accessorKey: 'trackingNumber',
+      header: 'Tracking',
+      cell: ({ row }: any) => (
+        <Link className="text-sm underline" href={`/fulfillment/shipments/${row.original.id}`}>
+          {row.original.trackingNumber || `Shipment #${row.original.id}`}
+        </Link>
+      ),
+    },
     { accessorKey: 'status', header: 'Status' },
     { accessorKey: 'carrierStatus', header: 'Carrier status' },
     {
@@ -135,53 +143,9 @@ export default function FulfillmentShipmentsPage() {
         const s = row.original;
         return (
           <div className="flex flex-wrap gap-1">
-            <button
-              className="text-xs px-2 py-1 border rounded inline-flex items-center gap-1"
-              onClick={async () => {
-                try {
-                  const res = await getDhlShipmentLabel(s.id);
-                  if (res.data?.labelUrl) window.open(res.data.labelUrl, '_blank');
-                  else toast.error('No label URL returned');
-                  void load();
-                } catch (e: any) {
-                  toast.error(e?.response?.data?.error?.message || 'Label failed');
-                }
-              }}
-            >
-              <FileText className="h-3 w-3" /> Label
-            </button>
-            <button
-              className="text-xs px-2 py-1 border rounded inline-flex items-center gap-1"
-              onClick={async () => {
-                try {
-                  const res = await trackDhlShipment({ shipmentId: s.id });
-                  toast.success(res.data?.carrierStatus || 'Tracking refreshed');
-                  if (res.data?.trackingUrl) window.open(res.data.trackingUrl, '_blank');
-                  void load();
-                } catch (e: any) {
-                  toast.error(e?.response?.data?.error?.message || 'Track failed');
-                }
-              }}
-            >
-              <MapPin className="h-3 w-3" /> Track
-            </button>
-            {s.status !== 'cancelled' && (
-              <button
-                className="text-xs px-2 py-1 border rounded inline-flex items-center gap-1 text-red-700"
-                onClick={async () => {
-                  if (!confirm('Cancel/void this DHL shipment? Only works before pickup.')) return;
-                  try {
-                    await cancelDhlShipment(s.id);
-                    toast.success('Cancel requested');
-                    void load();
-                  } catch (e: any) {
-                    toast.error(e?.response?.data?.error?.message || 'Cancel failed');
-                  }
-                }}
-              >
-                <XCircle className="h-3 w-3" /> Cancel
-              </button>
-            )}
+            <Link href={`/fulfillment/shipments/${s.id}`} className="text-xs px-2 py-1 border rounded inline-flex items-center gap-1">
+              <Eye className="h-3 w-3" /> View
+            </Link>
             {s.trackingUrl && (
               <a
                 href={s.trackingUrl}

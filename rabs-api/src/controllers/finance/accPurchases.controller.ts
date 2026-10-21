@@ -6,8 +6,11 @@ import { AccSupplierBillLine } from '@entities/finance/AccSupplierBillLine.js';
 import { AccBillPayment } from '@entities/finance/AccBillPayment.js';
 import { AccExpense } from '@entities/finance/AccExpense.js';
 import { Supplier } from '@entities/inventory/Supplier.js';
-import { calcLineVat, roundMoney } from '@services/finance/vatCalc.service.js';
+import { Employee } from '@entities/hr/Employee.js';
+import { calcLineVat, isReverseChargeCode, roundMoney } from '@services/finance/vatCalc.service.js';
 import { appendAccAudit } from '@services/finance/accAudit.service.js';
+import { zodMessage } from '@services/finance/zodMessage.js';
+import { documentsForEntity } from '@controllers/finance/accDocuments.controller.js';
 import {
   createPostedJournal,
   resolveAccountByCode
@@ -37,7 +40,8 @@ export class AccPurchasesController {
         .leftJoinAndSelect('b.supplier', 's')
         .leftJoinAndSelect('b.lines', 'l')
         .where('b.organization_id = :oid', { oid: orgId(req) })
-        .orderBy('b.bill_date', 'DESC')
+        .orderBy('b.billDate', 'DESC')
+        .addOrderBy('b.id', 'DESC')
         .take(100);
       if (req.query.status) qb.andWhere('b.status = :st', { st: String(req.query.status) });
       res.json({ data: await qb.getMany() });
@@ -48,15 +52,57 @@ export class AccPurchasesController {
 
   static async getBill(req: Request, res: Response): Promise<void> {
     try {
+      const oid = orgId(req);
       const item = await AppDataSource.getRepository(AccSupplierBill).findOne({
-        where: { id: req.params.id },
-        relations: ['supplier', 'lines', 'lines.vatCode', 'journalEntry']
+        where: { id: req.params.id, organizationId: oid },
+        relations: [
+          'supplier',
+          'lines',
+          'lines.vatCode',
+          'lines.ledgerAccount',
+          'journalEntry',
+          'journalEntry.journalLines',
+          'journalEntry.journalLines.ledgerAccount'
+        ]
       });
       if (!item) {
         res.status(404).json({ error: { message: 'Bill not found' } });
         return;
       }
-      res.json({ data: item });
+      const payments = await AppDataSource.getRepository(AccBillPayment).find({
+        where: { billId: item.id },
+        relations: ['bankAccount', 'journalEntry'],
+        order: { paymentDate: 'ASC', id: 'ASC' }
+      });
+      const documents = await documentsForEntity(oid, 'bill', item.id);
+      if (item.documentUrl && !documents.some((d) => d.documentUrl === item.documentUrl)) {
+        documents.push({
+          id: null,
+          documentName: 'Bill attachment',
+          documentUrl: item.documentUrl,
+          createdAt: item.createdAt
+        });
+      }
+      res.json({
+        data: {
+          ...item,
+          outstanding: roundMoney(Number(item.total) - Number(item.paidAmount || 0)),
+          payments: payments.map((p) => ({
+            id: p.id,
+            paymentDate: p.paymentDate,
+            amount: p.amount,
+            currency: p.currency,
+            reference: p.reference,
+            notes: p.notes,
+            bankAccount: p.bankAccount
+              ? { id: p.bankAccount.id, accountName: p.bankAccount.accountName }
+              : null,
+            journalEntryId: p.journalEntryId,
+            journalNumber: p.journalEntry?.journalNumber ?? null
+          })),
+          documents
+        }
+      });
     } catch (e: any) {
       res.status(500).json({ error: { message: e.message } });
     }
@@ -64,35 +110,91 @@ export class AccPurchasesController {
 
   static async createBill(req: Request, res: Response): Promise<void> {
     try {
-      const schema = z.object({
-        organizationId: z.string().optional(),
-        supplierId: z.string(),
-        billNumber: z.string().min(1),
-        billDate: z.string(),
-        dueDate: z.string().optional().nullable(),
-        currency: z.string().length(3).optional(),
-        documentUrl: z.string().optional().nullable(),
-        notes: z.string().optional().nullable(),
-        lines: z.array(lineSchema).min(1)
-      });
+      const schema = z
+        .object({
+          organizationId: z.string().optional(),
+          supplierId: z.coerce.string().optional().nullable(),
+          supplierName: z.string().trim().optional().nullable(),
+          billNumber: z.string().trim().min(1, 'Bill number is required'),
+          billDate: z.string().min(1, 'Bill date is required'),
+          dueDate: z.string().optional().nullable(),
+          currency: z.string().length(3).optional(),
+          documentUrl: z.string().optional().nullable(),
+          notes: z.string().optional().nullable(),
+          description: z.string().optional().nullable(),
+          subtotal: z.coerce.number().optional(),
+          vatCodeId: z.coerce.string().optional().nullable(),
+          lines: z.array(lineSchema).optional()
+        })
+        .superRefine((v, ctx) => {
+          if (!v.supplierId && !v.supplierName) {
+            ctx.addIssue({ code: 'custom', path: ['supplierName'], message: 'Supplier is required' });
+          }
+          if (!v.lines?.length && !(Number(v.subtotal) > 0)) {
+            ctx.addIssue({ code: 'custom', path: ['subtotal'], message: 'Net amount must be greater than 0' });
+          }
+          if (v.dueDate && v.billDate && new Date(v.dueDate) < new Date(v.billDate)) {
+            ctx.addIssue({ code: 'custom', path: ['dueDate'], message: 'Due date cannot be before bill date' });
+          }
+        });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const oid = parsed.data.organizationId || orgId(req);
+
+      let supplierId = parsed.data.supplierId || null;
+      if (!supplierId) {
+        const supplierRepo = AppDataSource.getRepository(Supplier);
+        const name = String(parsed.data.supplierName);
+        const existing = await supplierRepo
+          .createQueryBuilder('s')
+          .where('s.organization_id = :oid', { oid })
+          .andWhere('LOWER(s.name) = LOWER(:name)', { name })
+          .andWhere('s.deleted_at IS NULL')
+          .getOne();
+        const supplier =
+          existing ||
+          (await supplierRepo.save(
+            supplierRepo.create({
+              organization: { id: oid } as any,
+              code: `SUP-${Date.now().toString().slice(-8)}`,
+              name,
+              currency: parsed.data.currency ?? 'GBP',
+              status: 'active'
+            })
+          ));
+        supplierId = supplier.id;
+      }
+
+      const inputLines = parsed.data.lines?.length
+        ? parsed.data.lines
+        : [
+            {
+              description: parsed.data.description?.trim() || `Bill ${parsed.data.billNumber}`,
+              quantity: 1,
+              unitPrice: Number(parsed.data.subtotal),
+              vatCodeId: parsed.data.vatCodeId || null,
+              taxRate: undefined,
+              ledgerAccountId: null
+            }
+          ];
       let subtotal = 0;
       let taxAmount = 0;
+      let reverseChargeVat = 0;
       const built: Partial<AccSupplierBillLine>[] = [];
-      for (const line of parsed.data.lines) {
+      for (const line of inputLines) {
         const vat = await calcLineVat(oid, {
           quantity: line.quantity,
           unitPrice: line.unitPrice,
           vatCodeId: line.vatCodeId,
           taxRate: line.taxRate
         });
+        const reverseCharge = await isReverseChargeCode(oid, vat.vatCodeId);
         subtotal += vat.netAmount;
         taxAmount += vat.taxAmount;
+        if (reverseCharge) reverseChargeVat += vat.taxAmount;
         built.push({
           description: line.description,
           quantity: line.quantity,
@@ -100,7 +202,7 @@ export class AccPurchasesController {
           vatCodeId: vat.vatCodeId,
           taxRate: vat.taxRate,
           taxAmount: vat.taxAmount,
-          lineTotal: vat.grossAmount,
+          lineTotal: reverseCharge ? vat.netAmount : vat.grossAmount,
           ledgerAccountId: line.ledgerAccountId ?? null
         });
       }
@@ -109,16 +211,16 @@ export class AccPurchasesController {
       const bill = await billRepo.save(
         billRepo.create({
           organizationId: oid,
-          supplierId: parsed.data.supplierId,
+          supplierId,
           billNumber: parsed.data.billNumber,
           billDate: new Date(parsed.data.billDate),
           dueDate: parsed.data.dueDate ? new Date(parsed.data.dueDate) : null,
           currency: parsed.data.currency ?? 'GBP',
           documentUrl: parsed.data.documentUrl ?? null,
-          notes: parsed.data.notes ?? null,
+          notes: parsed.data.notes ?? parsed.data.description ?? null,
           subtotal: roundMoney(subtotal),
           taxAmount: roundMoney(taxAmount),
-          total: roundMoney(subtotal + taxAmount),
+          total: roundMoney(subtotal + taxAmount - reverseChargeVat),
           paidAmount: 0,
           status: 'draft',
           createdBy: userId(req)
@@ -197,7 +299,7 @@ export class AccPurchasesController {
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const billRepo = AppDataSource.getRepository(AccSupplierBill);
@@ -293,6 +395,23 @@ export class AccPurchasesController {
 }
 
 export class AccExpensesController {
+  static async employees(req: Request, res: Response): Promise<void> {
+    try {
+      const rows = await AppDataSource.getRepository(Employee)
+        .createQueryBuilder('e')
+        .select(['e.id', 'e.employeeNumber', 'e.firstName', 'e.lastName', 'e.status'])
+        .where('e.organization_id = :oid', { oid: orgId(req) })
+        .andWhere('e.deleted_at IS NULL')
+        .andWhere("e.status <> 'terminated'")
+        .orderBy('e.firstName', 'ASC')
+        .addOrderBy('e.lastName', 'ASC')
+        .getMany();
+      res.json({ data: rows });
+    } catch (e: any) {
+      res.status(500).json({ error: { message: e.message } });
+    }
+  }
+
   static async list(req: Request, res: Response): Promise<void> {
     try {
       const items = await AppDataSource.getRepository(AccExpense).find({
@@ -323,7 +442,7 @@ export class AccExpensesController {
       });
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const oid = parsed.data.organizationId || orgId(req);
@@ -388,6 +507,10 @@ export class AccExpensesController {
       const item = await repo.findOne({ where: { id: req.params.id } });
       if (!item) {
         res.status(404).json({ error: { message: 'Expense not found' } });
+        return;
+      }
+      if (!['draft', 'submitted'].includes(item.status)) {
+        res.status(409).json({ error: { message: `Expense is already ${item.status}` }, data: item });
         return;
       }
       item.status = 'approved';
@@ -461,6 +584,10 @@ export class AccExpensesController {
       const item = await repo.findOne({ where: { id: req.params.id } });
       if (!item) {
         res.status(404).json({ error: { message: 'Expense not found' } });
+        return;
+      }
+      if (!['draft', 'submitted'].includes(item.status)) {
+        res.status(409).json({ error: { message: `Expense is already ${item.status}` }, data: item });
         return;
       }
       item.status = 'rejected';

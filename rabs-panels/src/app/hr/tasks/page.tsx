@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
-import { listTasks, createTask, updateTask, deleteTask, listUsers, listBusinessUnits, listLocations } from '@/lib/api';
+import { listTasks, createTask, updateTask, deleteTask, listUserOptions, listBusinessUnits, listLocations } from '@/lib/api';
 import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
@@ -74,7 +74,7 @@ export default function TasksPage() {
       try {
         const [tasksRes, usersRes] = await Promise.all([
           listTasks({ organizationId: session?.user?.organizationId }),
-          listUsers()
+          listUserOptions()
         ]);
         setItems(tasksRes.data || []);
         setUsers(usersRes.data || []);

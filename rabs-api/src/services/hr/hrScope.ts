@@ -1,4 +1,25 @@
 import { Request } from 'express';
+import { z } from 'zod';
+
+/** MySQL tinyint columns come back as 0/1; clients often echo them straight back. */
+export const boolish = z.preprocess((v) => {
+  if (v === 1 || v === '1' || v === 'true') return true;
+  if (v === 0 || v === '0' || v === 'false') return false;
+  return v;
+}, z.boolean());
+
+/** Empty → null; otherwise must be an absolute http(s) URL or a root-relative path. */
+export const optionalDocUrl = z.preprocess(
+  (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+  z
+    .string()
+    .max(1000)
+    .refine((v) => /^https?:\/\/\S+$/i.test(v) || /^\/\S+$/.test(v), {
+      message: 'must be a valid URL (upload a file or paste a link starting with https://)'
+    })
+    .optional()
+    .nullable()
+);
 
 export function orgIdFromReq(req: Request): string | undefined {
   return (

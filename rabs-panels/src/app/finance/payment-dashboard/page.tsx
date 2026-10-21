@@ -7,6 +7,7 @@ import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
 import { StatCard } from '@/components/stat-card';
 import { GatewayManager } from '@/components/finance/gateway-manager';
+import { PaymentDetailModal, paymentReferenceText } from '@/components/finance/payment-detail-modal';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
 import { getPaymentDashboard } from '@/lib/api';
@@ -135,8 +136,8 @@ export default function PaymentDashboardPage() {
                         key={p.id}
                         className="p-3 rounded-xl border border-border text-sm flex justify-between gap-3"
                       >
-                        <div>
-                          <div className="font-medium">{p.transactionId || p.reference || p.id}</div>
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{paymentReferenceText(p.reference) || p.transactionId || p.id}</div>
                           <div className="text-xs text-muted-foreground">
                             {p.paymentMethod} · {p.status}
                             {p.failureMessage ? ` · ${p.failureMessage}` : ''}

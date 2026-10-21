@@ -4,15 +4,18 @@ import { FiscalPeriod } from '@entities/finance/FiscalPeriod.js';
 import { z } from 'zod';
 import { Organization } from '@entities/iam/Organization.js';
 import { User } from '@entities/iam/User.js';
+import { zodMessage } from '@services/finance/zodMessage.js';
 
-const createFiscalPeriodSchema = z.object({
-  organizationId: z.string(),
-  periodName: z.string().min(1),
-  periodType: z.enum(['month', 'quarter', 'year']),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  fiscalYear: z.coerce.number().int().positive()
-});
+const createFiscalPeriodSchema = z
+  .object({
+    organizationId: z.coerce.string().min(1, 'Organization is required'),
+    periodName: z.string().trim().min(1, 'Period name is required'),
+    periodType: z.enum(['month', 'quarter', 'year']),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be a valid date'),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'End date must be a valid date'),
+    fiscalYear: z.coerce.number().int().min(1900, 'Fiscal year must be a valid year').max(2200, 'Fiscal year must be a valid year')
+  })
+  .refine((v) => v.endDate > v.startDate, { path: ['endDate'], message: 'End date must be after start date' });
 
 const updateFiscalPeriodSchema = z.object({
   periodName: z.string().min(1).optional(),
@@ -77,8 +80,39 @@ export class FiscalPeriodsController {
         res.status(404).json({ error: { message: 'Fiscal Period not found' } });
         return;
       }
-      
-      res.json({ data: item });
+
+      // Journals booked to this period with their line totals, for the period view page.
+      const rows: Array<Record<string, any>> = await AppDataSource.query(
+        `SELECT je.id, je.journal_number AS journalNumber, je.entry_date AS entryDate, je.entry_type AS entryType,
+                je.source_type AS sourceType, je.status, je.description, je.reference,
+                COALESCE(SUM(jl.debit_amount), 0) AS totalDebit, COALESCE(SUM(jl.credit_amount), 0) AS totalCredit
+           FROM journal_entries je
+           LEFT JOIN journal_lines jl ON jl.journal_entry_id = je.id
+          WHERE je.fiscal_period_id = ?
+          GROUP BY je.id
+          ORDER BY je.entry_date DESC, je.id DESC
+          LIMIT 1000`,
+        [item.id]
+      );
+      const journals = rows.map((r) => ({
+        ...r,
+        id: String(r.id),
+        status: String(r.status),
+        totalDebit: Number(r.totalDebit),
+        totalCredit: Number(r.totalCredit)
+      }));
+      const byStatus = (s: string) => journals.filter((j) => j.status === s);
+      const posted = byStatus('posted');
+      const summary = {
+        journalCount: journals.length,
+        postedCount: posted.length,
+        draftCount: byStatus('draft').length,
+        voidedCount: byStatus('voided').length,
+        postedDebit: Math.round(posted.reduce((s, j) => s + j.totalDebit, 0) * 100) / 100,
+        postedCredit: Math.round(posted.reduce((s, j) => s + j.totalCredit, 0) * 100) / 100
+      };
+
+      res.json({ data: { ...item, summary, journals } });
     } catch (error: any) {
       res.status(500).json({ error: { message: error.message } });
     }
@@ -88,7 +122,7 @@ export class FiscalPeriodsController {
     try {
       const parsed = createFiscalPeriodSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 
@@ -148,7 +182,7 @@ export class FiscalPeriodsController {
       const parsed = updateFiscalPeriodSchema.safeParse(req.body);
       
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 

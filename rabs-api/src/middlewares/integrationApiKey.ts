@@ -8,22 +8,32 @@ export function hashIntegrationKey(raw: string): string {
   return crypto.createHash('sha256').update(raw).digest('hex');
 }
 
-function extractRawKey(req: Request): string | null {
-  const headerKey = req.headers['x-rabs-api-key'];
-  if (typeof headerKey === 'string' && headerKey.trim()) {
-    return headerKey.trim();
-  }
-  const auth = req.headers.authorization;
-  if (auth?.startsWith('Bearer ')) {
-    return auth.substring(7).trim() || null;
-  }
-  return null;
+function cleanKey(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const k = v.trim().replace(/^["']|["']$/g, '').trim();
+  return k || null;
 }
+
+function extractRawKey(req: Request): string | null {
+  const headerKey =
+    cleanKey(req.headers['x-rabs-api-key']) ||
+    cleanKey(req.headers['x-api-key']);
+  if (headerKey) return headerKey;
+  const auth = cleanKey(req.headers.authorization);
+  if (auth) {
+    const m = auth.match(/^(?:bearer|token|apikey)\s+(.+)$/i);
+    return cleanKey(m ? m[1] : auth);
+  }
+  return cleanKey(req.query.api_key) || cleanKey(req.query.apiKey);
+}
+
+const HOW_TO_AUTH =
+  'Send the full key (format rabs_<source>_<id>.<secret>) in header X-Rabs-Api-Key, ' +
+  'or Authorization: Bearer <key>, or as ?api_key=<key> on the webhook URL.';
 
 /**
  * Auth for external lead ingest — integration API key, NOT staff JWT.
- * Accepts X-Rabs-Api-Key or Authorization: Bearer <integration_key>.
- * Sets req.integration = { organizationId, source, keyId }.
+ * Accepts X-Rabs-Api-Key / X-Api-Key, Authorization: Bearer <key>, or ?api_key=<key>.
  */
 export async function integrationApiKeyMiddleware(
   req: Request,
@@ -32,11 +42,10 @@ export async function integrationApiKeyMiddleware(
 ): Promise<void> {
   const raw = extractRawKey(req);
   if (!raw) {
-    res.status(401).json({ error: { message: 'Missing integration API key' } });
+    res.status(401).json({ error: { message: `Missing integration API key. ${HOW_TO_AUTH}` } });
     return;
   }
 
-  // MVP fallback: env CRM_LEAD_INGEST_API_KEY (single-tenant org 1)
   if (env.CRM_LEAD_INGEST_API_KEY && raw === env.CRM_LEAD_INGEST_API_KEY) {
     (req as any).integration = {
       organizationId: env.CRM_LEAD_INGEST_ORG_ID || '1',
@@ -51,9 +60,25 @@ export async function integrationApiKeyMiddleware(
   try {
     const hash = hashIntegrationKey(raw);
     const repo = AppDataSource.getRepository(CrmIntegrationKey);
-    const key = await repo.findOne({ where: { keyHash: hash, active: true } });
+    const key = await repo.findOne({ where: { keyHash: hash } });
     if (!key) {
-      res.status(401).json({ error: { message: 'Invalid integration API key' } });
+      const prefix = raw.split('.')[0];
+      const byPrefix = await repo.findOne({ where: { keyPrefix: prefix } });
+      let message = `Invalid integration API key. ${HOW_TO_AUTH}`;
+      if (byPrefix && !raw.includes('.')) {
+        message =
+          'Only the key prefix was sent. Use the full secret shown once when the key was created ' +
+          '(rabs_<source>_<id>.<secret>); if it was lost, regenerate the key in CRM → Integrations.';
+      } else if (byPrefix) {
+        message = 'Integration API key secret does not match. Regenerate the key in CRM → Integrations and update the sender.';
+      }
+      res.status(401).json({ error: { message } });
+      return;
+    }
+    if (!key.active) {
+      res.status(401).json({
+        error: { message: 'This integration API key has been revoked. Use the active key or regenerate one in CRM → Integrations.' }
+      });
       return;
     }
     key.lastUsedAt = new Date();

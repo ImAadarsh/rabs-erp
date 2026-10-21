@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { zodMessage } from '@services/finance/zodMessage.js';
 import { AppDataSource } from '@config/data-source.js';
 import { Employee } from '@entities/hr/Employee.js';
 import { LeaveRequest } from '@entities/hr/LeaveRequest.js';
@@ -12,6 +13,7 @@ import { HrPension } from '@entities/hr/HrPension.js';
 import { HrImmigration } from '@entities/hr/HrImmigration.js';
 import { HrOnboardingChecklist } from '@entities/hr/HrOnboardingChecklist.js';
 import { userIdFromReq } from '@services/hr/hrScope.js';
+import { computeLeaveBalances } from '@services/hr/leaveBalance.service.js';
 import { IsNull } from 'typeorm';
 
 async function linkedEmployee(req: Request): Promise<Employee | null> {
@@ -79,7 +81,7 @@ export class MeController {
       }
       const parsed = patchMeSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const d = parsed.data;
@@ -128,7 +130,7 @@ export class MeController {
       }
       const parsed = leaveSelfSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const repo = AppDataSource.getRepository(LeaveRequest);
@@ -173,10 +175,9 @@ export class MeController {
         res.status(404).json({ error: { message: 'No employee record linked to this user' } });
         return;
       }
-      const items = await AppDataSource.getRepository(HrLeaveBalance).find({
-        where: { employeeId: emp.id },
-        relations: ['leavePolicy'],
-        order: { year: 'DESC' }
+      const items = await computeLeaveBalances({
+        employeeId: emp.id,
+        year: req.query.year ? Number(req.query.year) : undefined
       });
       res.json({ data: items });
     } catch (error: any) {

@@ -4,6 +4,7 @@ import { Inter, Poppins } from 'next/font/google';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from 'sonner';
 import { ServiceWorkerRegistration } from '@/components/service-worker-registration';
+import { PageAccessGuard } from '@/components/page-access-guard';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -33,7 +34,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className={`${inter.variable} ${poppins.variable} font-sans antialiased`} suppressHydrationWarning>
         <ServiceWorkerRegistration />
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
-          {children}
+          <PageAccessGuard>{children}</PageAccessGuard>
           <Toaster richColors position="top-right" />
         </ThemeProvider>
       </body>

@@ -64,7 +64,7 @@ socialRouter.post('/posts/:id/sync-insights', requireRoles(...socialRoles), Meta
 socialRouter.post('/messages/reply', requireRoles(...inboxRoles), MetaController.replyMessage);
 
 // Social Accounts
-socialRouter.get('/accounts', requireRoles(...socialRoles), SocialAccountController.list);
+socialRouter.get('/accounts', requireRoles(...inboxRoles), SocialAccountController.list);
 socialRouter.get('/accounts/:id', requireRoles(...socialRoles), SocialAccountController.get);
 socialRouter.post('/accounts', requireRoles(...socialRoles), SocialAccountController.create);
 socialRouter.patch('/accounts/:id', requireRoles(...socialRoles), SocialAccountController.update);

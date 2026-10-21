@@ -18,6 +18,7 @@ import { RichDataTable } from '@/components/rich-data-table';
 import { FilterBar, type FilterField } from '@/components/filter-bar';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
 import { Pencil, Trash2, Plus, X, ShoppingCart, Eye, Store, Monitor, RefreshCw, Download } from 'lucide-react';
 import Link from 'next/link';
@@ -93,7 +94,14 @@ export default function OrdersPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'CUSTOMER_SERVICE', 'WAREHOUSE_MANAGER']);
+  const { can } = useApiAccess();
+  const canCreate = can('POST', '/api/orders/orders');
+  const canUpdate = can('PATCH', '/api/orders/orders/:id');
+  const canDelete = can('DELETE', '/api/orders/orders/:id');
+  const canSync = can('POST', '/api/orders/channel-sync/import');
   const [loading, setLoading] = useState(true);
+  // Full-page loader only until the first load; later reloads keep the table on screen.
+  const [loadedOnce, setLoadedOnce] = useState(false);
   const [items, setItems] = useState<Order[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [showCreate, setShowCreate] = useState(false);
@@ -172,6 +180,7 @@ export default function OrdersPage() {
       toast.error('Failed to load orders');
     } finally {
       setLoading(false);
+      setLoadedOnce(true);
     }
   }, [orgId, search, filters]);
 
@@ -448,6 +457,7 @@ export default function OrdersPage() {
           >
             <Eye className="h-4 w-4" />
           </Link>
+          {canUpdate && (
           <button
             onClick={() => {
               setEditing(row.original);
@@ -475,15 +485,18 @@ export default function OrdersPage() {
           >
             <Pencil className="h-4 w-4" />
           </button>
+          )}
+          {canDelete && (
           <button onClick={() => setConfirmDel(row.original)} className="p-1 hover:bg-muted rounded text-red-500" title="Delete">
             <Trash2 className="h-4 w-4" />
           </button>
+          )}
         </div>
       )
     }
-  ], []);
+  ], [canUpdate, canDelete]);
 
-  if (!hydrated || loading) {
+  if (!hydrated || (loading && !loadedOnce)) {
     return (
       <div className="min-h-screen app-surface">
         <Sidebar />
@@ -562,6 +575,7 @@ export default function OrdersPage() {
                     <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                     Refresh
                   </button>
+                  {canSync && (
                   <button
                     onClick={() => void onSyncChannels()}
                     disabled={syncing}
@@ -571,6 +585,8 @@ export default function OrdersPage() {
                     <Download className={`h-4 w-4 ${syncing ? 'animate-pulse' : ''}`} />
                     {syncing ? (syncProgress || 'Syncing…') : 'Sync Channels'}
                   </button>
+                  )}
+                  {canSync && (
                   <Link
                     href="/orders/channel-sync"
                     className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm hover:bg-muted"
@@ -578,6 +594,8 @@ export default function OrdersPage() {
                     <Store className="h-4 w-4" />
                     Advanced Sync
                   </Link>
+                  )}
+                  {canCreate && (
                   <button
                     onClick={() => setShowCreate(true)}
                     className="flex items-center gap-2 px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand-600"
@@ -585,6 +603,7 @@ export default function OrdersPage() {
                     <Plus className="h-4 w-4" />
                     Add Order
                   </button>
+                  )}
                 </>
               }
             />
@@ -594,7 +613,10 @@ export default function OrdersPage() {
                 <div className="text-sm text-muted-foreground">Loading orders...</div>
               </div>
             ) : (
-              <div className="rounded-2xl border border-border bg-card p-2">
+              <div
+                className={`rounded-2xl border border-border bg-card p-2 transition-opacity ${loading ? 'opacity-60' : ''}`}
+                aria-busy={loading}
+              >
                 <RichDataTable columns={columns} data={items} hideSearch />
               </div>
             )}

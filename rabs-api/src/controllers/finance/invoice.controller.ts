@@ -8,11 +8,19 @@ import { Order } from '@entities/orders/Order.js';
 import { OrderAddress } from '@entities/orders/OrderAddress.js';
 import { Organization } from '@entities/iam/Organization.js';
 import { Location } from '@entities/iam/Location.js';
+import { BusinessUnit } from '@entities/iam/BusinessUnit.js';
 import {
     generateInvoicesForOrders,
     findUninvoicedOrderIds,
     applyBulkEligibility
 } from '@services/finance/invoiceGeneration.service.js';
+import {
+    getOrganizationLetterhead,
+    letterheadSettingsSchema,
+    saveOrganizationLetterhead,
+    type LetterheadSettings
+} from '@services/finance/letterhead.service.js';
+import { syncInvoiceLedger, voidLedgerForDeletedDocument } from '@services/finance/ledgerAutoPost.service.js';
 
 const lineSchema = z.object({
     id: z.string().optional(),
@@ -46,8 +54,121 @@ const generateSchema = z.object({
     organizationId: z.string(),
     /** Specific orders to invoice. Omit to invoice every uninvoiced order. */
     orderIds: z.array(z.string()).optional(),
+    /** Orders to invoice by their order number (e.g. "3324" or "POS-1001"). */
+    orderNumbers: z.array(z.string().trim().min(1)).optional(),
     limit: z.number().int().positive().max(1000).optional()
 });
+
+type Letterhead = {
+    key: string;
+    label: string;
+    name: string;
+    legalName: string | null;
+    taxId: string | null;
+    registrationNumber: string | null;
+    website: string | null;
+    phone: string | null;
+    email: string | null;
+    logoUrl: string | null;
+    address: {
+        line1: string | null;
+        line2: string | null;
+        city: string | null;
+        stateProvince: string | null;
+        postalCode: string | null;
+        countryCode: string | null;
+    } | null;
+    /** Free-form address from the edited letterhead; takes precedence over `address`. */
+    addressLines: string[] | null;
+    footerText: string | null;
+    accentColor: string | null;
+};
+
+function locationAddress(l?: Location | null): Letterhead['address'] {
+    if (!l?.addressLine1) return null;
+    return {
+        line1: l.addressLine1,
+        line2: l.addressLine2 ?? null,
+        city: l.city ?? null,
+        stateProvince: l.stateProvince ?? null,
+        postalCode: l.postalCode ?? null,
+        countryCode: l.countryCode ?? null
+    };
+}
+
+function pickLocation(locations?: Location[] | null) {
+    return (locations || [])
+        .filter((l) => l.status === 'active' && l.addressLine1)
+        .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || Number(a.id) - Number(b.id))[0] ?? null;
+}
+
+/**
+ * One letterhead for the organization plus one per active business unit.
+ * A business unit can override any field via `settings.letterhead`
+ * (e.g. its own trading name, VAT number or logo); unset fields fall back to the
+ * unit's default location and then to the organization.
+ */
+function buildLetterheads(org: Organization, units: BusinessUnit[], custom: LetterheadSettings | null): Letterhead[] {
+    const orgLocation = pickLocation(units.flatMap((u) => u.locations || []));
+    const lh = custom;
+    const base: Letterhead = {
+        key: 'org',
+        label: `${org.name} (organization)`,
+        name: lh?.companyName || org.name,
+        // An edited company name is what the invoice heading should show.
+        legalName: lh?.companyName ? null : (org.legalName ?? null),
+        taxId: lh?.vatNumber ?? org.taxId ?? null,
+        registrationNumber: lh?.companyNumber ?? org.registrationNumber ?? null,
+        website: lh?.website ?? org.website ?? null,
+        phone: lh?.phone ?? org.phone ?? orgLocation?.phone ?? null,
+        email: lh?.email ?? org.email ?? orgLocation?.email ?? null,
+        logoUrl: lh?.logoUrl ?? org.logoUrl ?? null,
+        address: locationAddress(orgLocation),
+        addressLines: lh?.addressLines?.length ? lh.addressLines : null,
+        footerText: lh?.footerText ?? null,
+        accentColor: lh?.accentColor ?? null
+    };
+    const result: Letterhead[] = [base];
+    for (const u of units) {
+        const loc = pickLocation(u.locations);
+        const o = (u.settings?.letterhead ?? {}) as Partial<Letterhead>;
+        const ownAddress = o.address ?? locationAddress(loc);
+        result.push({
+            ...base,
+            key: `bu:${u.id}`,
+            label: u.name,
+            name: o.name || u.name,
+            legalName: o.legalName ?? base.legalName,
+            taxId: o.taxId ?? base.taxId,
+            registrationNumber: o.registrationNumber ?? base.registrationNumber,
+            website: o.website ?? base.website,
+            phone: o.phone ?? loc?.phone ?? base.phone,
+            email: o.email ?? loc?.email ?? base.email,
+            logoUrl: o.logoUrl ?? base.logoUrl,
+            address: ownAddress ?? base.address,
+            addressLines: o.addressLines ?? (ownAddress ? null : base.addressLines),
+            footerText: o.footerText ?? base.footerText,
+            accentColor: o.accentColor ?? base.accentColor
+        });
+    }
+    return result;
+}
+
+/** Organization whose letterhead is read/edited; only SUPER_ADMIN may target another organization. */
+function letterheadOrgId(req: Request, res: Response): string | null {
+    const auth = (req as any).auth as { orgId?: string; roles?: string[] } | undefined;
+    const requested = String(req.query.organizationId || req.body?.organizationId || auth?.orgId || '');
+    if (!requested) {
+        res.status(400).json({ error: { message: 'organizationId is required' } });
+        return null;
+    }
+    const isSuperAdmin = (auth?.roles || []).includes('SUPER_ADMIN');
+    if (!isSuperAdmin && auth?.orgId && String(auth.orgId) !== requested) {
+        res.status(403).json({ error: { message: 'You can only edit your own organization letterhead' } });
+        return null;
+    }
+    return requested;
+}
 
 /** Display name for a customer record, which stores names in parts. */
 function customerName(c?: { firstName?: string | null; lastName?: string | null; companyName?: string | null; email?: string | null } | null) {
@@ -163,7 +284,7 @@ export class InvoiceController {
                     : Promise.resolve(null)
             ]);
 
-            const [addresses, payments, sellerLocation] = await Promise.all([
+            const [addresses, payments, units, customLetterhead] = await Promise.all([
                 invoice.orderId
                     ? AppDataSource.getRepository(OrderAddress).find({ where: { order: { id: invoice.orderId } } })
                     : Promise.resolve([]),
@@ -173,18 +294,18 @@ export class InvoiceController {
                         order: { paymentDate: 'ASC' }
                     })
                     : Promise.resolve([]),
-                // The organization itself holds no address, so fall back to its
-                // default trading location for the letterhead.
-                AppDataSource.getRepository(Location).createQueryBuilder('l')
-                    .innerJoin('l.businessUnit', 'bu')
-                    .where('bu.organization_id = :orgId', { orgId: invoice.organizationId })
-                    .andWhere('l.status = :status', { status: 'active' })
-                    .andWhere('l.address_line1 IS NOT NULL')
-                    .orderBy('l.is_default', 'DESC')
-                    .addOrderBy('l.id', 'ASC')
-                    .getOne()
-                    .catch(() => null)
+                AppDataSource.getRepository(BusinessUnit).find({
+                    where: { organization: { id: invoice.organizationId }, status: 'active' },
+                    relations: ['locations'],
+                    order: { id: 'ASC' }
+                }).catch(() => [] as BusinessUnit[]),
+                getOrganizationLetterhead(String(invoice.organizationId)).catch(() => null)
             ]);
+
+            const letterheads = organization ? buildLetterheads(organization, units, customLetterhead) : [];
+            const defaultKey = invoice.businessUnit?.id && letterheads.some((l) => l.key === `bu:${invoice.businessUnit!.id}`)
+                ? `bu:${invoice.businessUnit.id}`
+                : 'org';
 
             res.json({
                 data: {
@@ -194,32 +315,60 @@ export class InvoiceController {
                     billingAddress: addresses.find((a) => a.addressType === 'billing') ?? null,
                     shippingAddress: addresses.find((a) => a.addressType === 'shipping') ?? null,
                     payments,
-                    seller: organization
-                        ? {
-                            name: organization.name,
-                            legalName: organization.legalName ?? null,
-                            taxId: organization.taxId ?? null,
-                            registrationNumber: organization.registrationNumber ?? null,
-                            website: organization.website ?? null,
-                            phone: organization.phone ?? sellerLocation?.phone ?? null,
-                            email: organization.email ?? sellerLocation?.email ?? null,
-                            logoUrl: organization.logoUrl ?? null,
-                            address: sellerLocation
-                                ? {
-                                    line1: sellerLocation.addressLine1,
-                                    line2: sellerLocation.addressLine2,
-                                    city: sellerLocation.city,
-                                    stateProvince: sellerLocation.stateProvince,
-                                    postalCode: sellerLocation.postalCode,
-                                    countryCode: sellerLocation.countryCode
-                                }
-                                : null
-                        }
-                        : null
+                    letterheads,
+                    defaultLetterheadKey: defaultKey,
+                    seller: letterheads.find((l) => l.key === defaultKey) ?? null
                 }
             });
         } catch (error: any) {
             res.status(500).json({ error: { message: error.message } });
+        }
+    }
+
+    /** Editable invoice letterhead of an organization (null fields fall back to the profile). */
+    static async getLetterhead(req: Request, res: Response) {
+        try {
+            const orgId = letterheadOrgId(req, res);
+            if (!orgId) return;
+            const organization = await AppDataSource.getRepository(Organization).findOne({ where: { id: orgId } });
+            if (!organization) return res.status(404).json({ error: { message: 'Organization not found' } });
+            res.json({
+                data: {
+                    organizationId: orgId,
+                    settings: await getOrganizationLetterhead(orgId),
+                    profile: {
+                        name: organization.name,
+                        legalName: organization.legalName,
+                        taxId: organization.taxId,
+                        registrationNumber: organization.registrationNumber,
+                        website: organization.website,
+                        phone: organization.phone,
+                        email: organization.email,
+                        logoUrl: organization.logoUrl
+                    }
+                }
+            });
+        } catch (error: any) {
+            res.status(500).json({ error: { message: error.message } });
+        }
+    }
+
+    static async saveLetterhead(req: Request, res: Response) {
+        try {
+            const orgId = letterheadOrgId(req, res);
+            if (!orgId) return;
+            const parsed = letterheadSettingsSchema.safeParse(req.body?.settings ?? req.body);
+            if (!parsed.success) {
+                return res.status(400).json({
+                    error: { message: parsed.error.issues.map((i) => i.message).join('; '), details: parsed.error.issues }
+                });
+            }
+            const organization = await AppDataSource.getRepository(Organization).findOne({ where: { id: orgId } });
+            if (!organization) return res.status(404).json({ error: { message: 'Organization not found' } });
+            const settings = await saveOrganizationLetterhead(orgId, parsed.data, (req as any).auth?.sub ?? null);
+            res.json({ data: { organizationId: orgId, settings } });
+        } catch (error: any) {
+            res.status(error?.status || 500).json({ error: { message: error.message } });
         }
     }
 
@@ -269,16 +418,36 @@ export class InvoiceController {
     static async generate(req: Request, res: Response) {
         try {
             const body = generateSchema.parse(req.body);
-            const orderIds = body.orderIds?.length
-                ? body.orderIds
-                : await findUninvoicedOrderIds(body.organizationId, body.limit);
+            const notFound: Array<{ orderId: string; orderNumber: string; reason: string }> = [];
+            let orderIds: string[];
+            if (body.orderNumbers?.length) {
+                const wanted = [...new Set(body.orderNumbers)];
+                const found = await AppDataSource.getRepository(Order)
+                    .createQueryBuilder('o')
+                    .select(['o.id', 'o.orderNumber'])
+                    .where('o.organization_id = :orgId', { orgId: body.organizationId })
+                    .andWhere('o.orderNumber IN (:...nums)', { nums: wanted })
+                    .getMany();
+                const byNumber = new Map(found.map((o) => [String(o.orderNumber).toLowerCase(), String(o.id)]));
+                orderIds = [];
+                for (const n of wanted) {
+                    const id = byNumber.get(n.toLowerCase());
+                    if (id) orderIds.push(id);
+                    else notFound.push({ orderId: '—', orderNumber: n, reason: `Order ${n} not found in this organization` });
+                }
+            } else {
+                orderIds = body.orderIds?.length
+                    ? body.orderIds
+                    : await findUninvoicedOrderIds(body.organizationId, body.limit);
+            }
 
             if (orderIds.length === 0) {
-                return res.json({ data: { created: 0, skipped: [], invoices: [] } });
+                return res.json({ data: { created: 0, skipped: notFound, invoices: [] } });
             }
 
             const userId = (req as any).user?.id ? String((req as any).user.id) : undefined;
             const result = await generateInvoicesForOrders(body.organizationId, orderIds, userId);
+            result.skipped.push(...notFound);
 
             res.status(201).json({
                 data: {
@@ -348,6 +517,7 @@ export class InvoiceController {
             });
 
             const saved = await repo.save(item);
+            await syncInvoiceLedger(String(saved.id), (req as any).user?.id ? String((req as any).user.id) : null);
             res.status(201).json({ data: saved });
         } catch (error: any) {
             if (error instanceof z.ZodError) {
@@ -363,6 +533,7 @@ export class InvoiceController {
             const repo = AppDataSource.getRepository(Invoice);
             const item = await repo.findOne({ where: { id: req.params.id }, relations: ['lines'] });
             if (!item) return res.status(404).json({ error: { message: 'Not found' } });
+            const before = { total: Number(item.total), tax: Number(item.taxAmount) };
 
             Object.assign(item, data);
 
@@ -375,8 +546,6 @@ export class InvoiceController {
             }
 
             if (data.lines) {
-                await AppDataSource.getRepository(InvoiceLine).delete({ invoiceId: item.id });
-
                 let subtotal = 0;
                 let totalTax = 0;
                 const lineRepo = AppDataSource.getRepository(InvoiceLine);
@@ -399,7 +568,18 @@ export class InvoiceController {
                 item.total = subtotal + totalTax + (Number(item.shippingAmount) || 0) - (Number(item.discountAmount) || 0);
             }
 
+            if (
+                item.journalEntryId &&
+                (Math.abs(Number(item.total) - before.total) > 0.005 || Math.abs(Number(item.taxAmount) - before.tax) > 0.005)
+            ) {
+                return res.status(409).json({
+                    error: { message: 'This invoice is posted to the ledger, so its amounts cannot change. Cancel it and issue a new invoice instead.' }
+                });
+            }
+
+            if (data.lines) await AppDataSource.getRepository(InvoiceLine).delete({ invoiceId: item.id });
             const saved = await repo.save(item);
+            await syncInvoiceLedger(String(saved.id), (req as any).user?.id ? String((req as any).user.id) : null);
             res.json({ data: saved });
         } catch (error: any) {
             if (error instanceof z.ZodError) {
@@ -415,6 +595,7 @@ export class InvoiceController {
             const item = await repo.findOne({ where: { id: req.params.id } });
             if (!item) return res.status(404).json({ error: { message: 'Not found' } });
 
+            await voidLedgerForDeletedDocument('invoice', String(item.id));
             await repo.remove(item);
             res.json({ data: { id: item.id } });
         } catch (error: any) {

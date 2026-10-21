@@ -8,6 +8,8 @@ export type Session = {
     lastName?: string;
     organizationId: string;
     roles: string[];
+    /** Allowed panel page keys from role page permissions; null = unrestricted, undefined = not loaded yet. */
+    pages?: string[] | null;
   };
 };
 

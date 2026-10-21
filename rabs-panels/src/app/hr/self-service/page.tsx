@@ -7,7 +7,7 @@ import { useSession } from '@/hooks/use-session';
 import {
   getHrMe, updateHrMe, listHrMeLeaveRequests, createHrMeLeaveRequest,
   listHrMePayslips, listHrMeDocuments, listEmployees, listLeaveRequests,
-  createLeaveRequest, listPayrollLines, listEmployeeDocuments,
+  listPayrollLines, listEmployeeDocuments,
 } from '@/lib/api';
 import { employeeName, formatDate, formatMoney, hrApiError, isApiMissing, LEAVE_TYPES, statusBadgeClass } from '@/lib/hr-utils';
 import { HrModal, HrField, HrModalActions, hrInputClass, hrTextareaClass } from '@/components/hr/hr-modal';
@@ -60,34 +60,10 @@ export default function SelfServicePage() {
         setDocs(d.data || []);
       } catch (err) {
         if (!isApiMissing(err)) throw err;
-        setApiMissing(true);
-        // Fallback: find employee linked to current user
-        const empRes = await listEmployees({ organizationId: session?.user?.organizationId });
-        const linked = (empRes.data || []).find(
-          (e: any) => e.userId === session?.user?.id || e.user?.id === session?.user?.id || e.email === session?.user?.email
-        );
-        if (!linked) {
-          setMe(null);
-          setLeave([]);
-          setPayslips([]);
-          setDocs([]);
-        } else {
-          setMe(linked);
-          const [l, pl, d] = await Promise.all([
-            listLeaveRequests({ employeeId: linked.id }).catch(() => ({ data: [] })),
-            listPayrollLines({ employeeId: linked.id }).catch(() => ({ data: [] })),
-            listEmployeeDocuments({ employeeId: linked.id }).catch(() => ({ data: [] })),
-          ]);
-          setLeave(l.data || []);
-          setPayslips((pl.data || []).map((x: any) => ({
-            id: x.id,
-            netPay: x.netPay,
-            grossPay: x.grossPay,
-            periodLabel: x.payrollRun?.payrollNumber,
-            payslipUrl: x.payslipUrl,
-          })));
-          setDocs(d.data || []);
-        }
+        setMe(null);
+        setLeave([]);
+        setPayslips([]);
+        setDocs([]);
       }
     } catch (err) {
       toast.error(hrApiError(err, 'Failed to load self-service'));
@@ -118,19 +94,7 @@ export default function SelfServicePage() {
     e.preventDefault();
     setSaving(true);
     try {
-      try {
-        await createHrMeLeaveRequest(leaveForm);
-      } catch (err) {
-        if (!isApiMissing(err) || !me?.id) throw err;
-        await createLeaveRequest({
-          employeeId: me.id,
-          leaveType: leaveForm.leaveType as any,
-          startDate: leaveForm.startDate,
-          endDate: leaveForm.endDate,
-          totalDays: leaveForm.totalDays,
-          reason: leaveForm.reason || undefined,
-        });
-      }
+      await createHrMeLeaveRequest(leaveForm);
       toast.success('Leave request submitted');
       setLeaveOpen(false);
       void load();

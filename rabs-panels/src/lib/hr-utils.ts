@@ -1,3 +1,5 @@
+import { API_BASE } from '@/lib/api';
+
 export function hrApiError(err: unknown, fallback = 'Something went wrong'): string {
   const e = err as any;
   return (
@@ -6,6 +8,16 @@ export function hrApiError(err: unknown, fallback = 'Something went wrong'): str
     e?.message ||
     fallback
   );
+}
+
+/** Absolute URL for a stored document link, or null when the value is not a usable link. */
+export function resolveDocUrl(url?: string | null): string | null {
+  const u = (url || '').trim();
+  if (!u) return null;
+  if (/^https?:\/\/\S+$/i.test(u)) return u;
+  if (/^\/\S+$/.test(u)) return `${API_BASE}${u}`;
+  if (/^[\w-]+(\.[\w-]+)+(\/\S*)?$/i.test(u)) return `https://${u}`;
+  return null;
 }
 
 export function isApiMissing(err: unknown): boolean {
@@ -118,6 +130,33 @@ export const LEAVE_TYPES = [
   { value: 'unpaid', label: 'Unpaid' },
   { value: 'other', label: 'Other' },
 ] as const;
+
+export const RTW_DOC_TYPES = [
+  { value: 'passport', label: 'Passport' },
+  { value: 'brp', label: 'BRP' },
+  { value: 'visa', label: 'Visa vignette' },
+  { value: 'share_code_check', label: 'Share code check' },
+  { value: 'birth_certificate', label: 'Birth certificate' },
+  { value: 'other', label: 'Other' },
+] as const;
+
+export const HR_DOC_CATEGORIES = [
+  { value: 'contract', label: 'Contract' },
+  { value: 'handbook', label: 'Handbook' },
+  { value: 'policy', label: 'Policy' },
+  { value: 'id', label: 'ID' },
+  { value: 'certificate', label: 'Certificate' },
+  { value: 'other', label: 'Other' },
+] as const;
+
+export function toRtwDocType(t: string): string {
+  return RTW_DOC_TYPES.some((d) => d.value === t) ? t : 'other';
+}
+
+export function toHrDocCategory(t: string): string {
+  if (HR_DOC_CATEGORIES.some((d) => d.value === t)) return t;
+  return ['passport', 'brp', 'visa', 'share_code_check', 'birth_certificate'].includes(t) ? 'id' : 'other';
+}
 
 export const APPLICANT_STAGES = [
   { value: 'applied', label: 'Applied' },

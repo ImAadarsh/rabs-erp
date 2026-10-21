@@ -7,6 +7,7 @@ import { Organization } from '@entities/iam/Organization.js';
 import { Warehouse } from '@entities/inventory/Warehouse.js';
 import { User } from '@entities/iam/User.js';
 import { StockItem } from '@entities/inventory/StockItem.js';
+import { inactiveWarehouseError } from '@services/inventory/locationStatus.js';
 
 const cycleCountLineSchema = z.object({
   stockItemId: z.string(),
@@ -138,6 +139,11 @@ export class CycleCountsController {
       const warehouse = await warehouseRepo.findOne({ where: { id: parsed.data.warehouseId } });
       if (!warehouse) {
         res.status(400).json({ error: { message: 'Invalid warehouseId' } });
+        return;
+      }
+      const warehouseError = inactiveWarehouseError(warehouse);
+      if (warehouseError) {
+        res.status(400).json({ error: { message: warehouseError } });
         return;
       }
 

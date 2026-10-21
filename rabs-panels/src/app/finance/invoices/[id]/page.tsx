@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useSession } from '@/hooks/use-session';
@@ -8,17 +8,44 @@ import { useRoleCheck } from '@/hooks/use-role-check';
 import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
 import { UnifiedInvoiceDocument, type InvoiceDocumentData } from '@/components/unified-invoice';
+import { InvoiceLetterheadEditor } from '@/components/invoice-letterhead-editor';
 import { getInvoice } from '@/lib/api';
-import { ArrowLeft, Printer, Loader2 } from 'lucide-react';
+import { ArrowLeft, Printer, Loader2, PenSquare } from 'lucide-react';
 import { toast } from 'sonner';
+
+type Letterhead = NonNullable<InvoiceDocumentData['seller']> & { key: string; label: string };
 
 export default function InvoiceDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'FINANCE']);
-  const [invoice, setInvoice] = useState<InvoiceDocumentData | null>(null);
+  const [invoice, setInvoice] = useState<
+    (InvoiceDocumentData & { letterheads?: Letterhead[]; defaultLetterheadKey?: string }) | null
+  >(null);
   const [loading, setLoading] = useState(true);
+  const [letterheadKey, setLetterheadKey] = useState('');
+  const [editingLetterhead, setEditingLetterhead] = useState(false);
+  const storageKey = `rabs.invoiceLetterhead.${session?.user?.organizationId ?? ''}`;
+  const letterheads = invoice?.letterheads ?? [];
+
+  useEffect(() => {
+    if (!invoice) return;
+    const saved = typeof window !== 'undefined' ? window.localStorage.getItem(storageKey) : null;
+    const keys = (invoice.letterheads ?? []).map((l) => l.key);
+    setLetterheadKey(saved && keys.includes(saved) ? saved : invoice.defaultLetterheadKey || keys[0] || '');
+  }, [invoice, storageKey]);
+
+  const docData = useMemo(() => {
+    if (!invoice) return null;
+    const chosen = letterheads.find((l) => l.key === letterheadKey);
+    return chosen ? { ...invoice, seller: chosen } : invoice;
+  }, [invoice, letterheads, letterheadKey]);
+
+  function onLetterheadChange(key: string) {
+    setLetterheadKey(key);
+    window.localStorage.setItem(storageKey, key);
+  }
 
   useEffect(() => {
     if (!hydrated || !hasAccess) return;
@@ -39,6 +66,13 @@ export default function InvoiceDetailPage() {
       .finally(() => setLoading(false));
   }, [hydrated, hasAccess, session?.accessToken, params?.id, router]);
 
+  function reloadInvoice() {
+    if (!params?.id) return;
+    getInvoice(params.id)
+      .then((res) => setInvoice(res.data))
+      .catch(() => undefined);
+  }
+
   if (!hydrated || !hasAccess) return null;
 
   return (
@@ -56,6 +90,32 @@ export default function InvoiceDetailPage() {
                 <ArrowLeft className="h-4 w-4" />
                 Back to invoices
               </Link>
+              <div className="flex flex-wrap items-center gap-2">
+              {letterheads.length > 1 && (
+                <label className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Letterhead</span>
+                  <select
+                    value={letterheadKey}
+                    onChange={(e) => onLetterheadChange(e.target.value)}
+                    className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                  >
+                    {letterheads.map((l) => (
+                      <option key={l.key} value={l.key}>
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <button
+                onClick={() => setEditingLetterhead(true)}
+                disabled={!invoice}
+                className="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
+                title="Logo, company name, address, contact details, VAT number, footer and colour"
+              >
+                <PenSquare className="h-4 w-4" />
+                Edit letterhead
+              </button>
               <button
                 onClick={() => window.print()}
                 disabled={!invoice}
@@ -64,6 +124,7 @@ export default function InvoiceDetailPage() {
                 <Printer className="h-4 w-4" />
                 Print / Save PDF
               </button>
+              </div>
             </div>
 
             {loading ? (
@@ -76,11 +137,18 @@ export default function InvoiceDetailPage() {
                 Invoice not found
               </div>
             ) : (
-              <UnifiedInvoiceDocument invoice={invoice} />
+              <UnifiedInvoiceDocument invoice={docData ?? invoice} />
             )}
           </div>
         </main>
       </div>
+
+      <InvoiceLetterheadEditor
+        open={editingLetterhead}
+        organizationId={(invoice as any)?.organizationId ? String((invoice as any).organizationId) : session?.user?.organizationId}
+        onClose={() => setEditingLetterhead(false)}
+        onSaved={reloadInvoice}
+      />
 
       <style jsx global>{`
         @media print {

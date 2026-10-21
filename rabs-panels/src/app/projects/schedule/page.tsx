@@ -9,7 +9,7 @@ import { FilterBar, type FilterField } from '@/components/filter-bar';
 import { useSession } from '@/hooks/use-session';
 import {
   listPmSchedule, createPmScheduleBlock, deletePmScheduleBlock,
-  listPmProjects, listPmTasks, listUsers,
+  listPmProjects, listPmTasks, listUserOptions,
 } from '@/lib/api';
 import { formatDateTime, pmApiError, userLabel } from '@/lib/pm-utils';
 import { toast } from 'sonner';
@@ -101,7 +101,7 @@ export default function PmSchedulePage() {
     void Promise.all([
       listPmProjects({ organizationId: orgId, limit: 200 }),
       listPmTasks({ organizationId: orgId, limit: 200 }),
-      listUsers(),
+      listUserOptions(),
     ]).then(([p, t, u]) => {
       setProjects(p.data || []);
       setTasks(t.data || []);

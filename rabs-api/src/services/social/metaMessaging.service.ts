@@ -220,7 +220,7 @@ export async function fetchMetaInbox(opts: {
         accountHandle: account.accountHandle,
         participants: [],
         tags: ['error'],
-        locked: { message: err?.message, missingPermission: err?.missingPermission }
+        locked: { message: err?.message, missingPermission: err?.missingPermission || 'pages_messaging' }
       });
     }
   }

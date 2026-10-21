@@ -20,16 +20,19 @@ const analyticRoles = ['ADMIN', 'SUPER_ADMIN', 'FINANCE'];
 
 // Report Definitions
 analyticsRouter.get('/reports', requireRoles(...analyticRoles), ReportDefinitionController.list);
+analyticsRouter.get('/reports/datasets', requireRoles(...analyticRoles), ReportDefinitionController.datasets);
 analyticsRouter.get('/reports/:id', requireRoles(...analyticRoles), ReportDefinitionController.get);
-analyticsRouter.post('/reports', requireRoles('ADMIN', 'SUPER_ADMIN'), ReportDefinitionController.create);
-analyticsRouter.patch('/reports/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), ReportDefinitionController.update);
-analyticsRouter.delete('/reports/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), ReportDefinitionController.remove);
+analyticsRouter.post('/reports', requireRoles('ADMIN', 'SUPER_ADMIN', 'FINANCE'), ReportDefinitionController.create);
+analyticsRouter.patch('/reports/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'FINANCE'), ReportDefinitionController.update);
+analyticsRouter.delete('/reports/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'FINANCE'), ReportDefinitionController.remove);
+analyticsRouter.post('/reports/:id/run', requireRoles(...analyticRoles), ReportDefinitionController.run);
 
 // Scheduled Reports
 analyticsRouter.get('/scheduled-reports', requireRoles(...analyticRoles), ScheduledReportController.list);
 analyticsRouter.get('/scheduled-reports/:id', requireRoles(...analyticRoles), ScheduledReportController.get);
 analyticsRouter.post('/scheduled-reports', requireRoles('ADMIN', 'SUPER_ADMIN'), ScheduledReportController.create);
 analyticsRouter.patch('/scheduled-reports/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), ScheduledReportController.update);
+analyticsRouter.post('/scheduled-reports/:id/run', requireRoles('ADMIN', 'SUPER_ADMIN'), ScheduledReportController.runNow);
 analyticsRouter.delete('/scheduled-reports/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), ScheduledReportController.remove);
 
 // Dashboards
@@ -42,6 +45,7 @@ analyticsRouter.delete('/dashboards/:id', requireRoles(...analyticRoles), Dashbo
 // Data Exports
 analyticsRouter.get('/exports', requireRoles(...analyticRoles), DataExportController.list);
 analyticsRouter.get('/exports/:id', requireRoles(...analyticRoles), DataExportController.get);
+analyticsRouter.get('/exports/:id/download', requireRoles(...analyticRoles), DataExportController.download);
 analyticsRouter.post('/exports', requireRoles(...analyticRoles), DataExportController.create);
 analyticsRouter.patch('/exports/:id', requireRoles(...analyticRoles), DataExportController.update);
 analyticsRouter.delete('/exports/:id', requireRoles(...analyticRoles), DataExportController.remove);

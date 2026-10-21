@@ -5,6 +5,7 @@ import { StockItem } from '@entities/inventory/StockItem.js';
 import { z } from 'zod';
 import { Organization } from '@entities/iam/Organization.js';
 import { User } from '@entities/iam/User.js';
+import { inactiveWarehouseError } from '@services/inventory/locationStatus.js';
 
 const createStockAdjustmentSchema = z.object({
   organizationId: z.string(),
@@ -125,6 +126,11 @@ export class StockAdjustmentsController {
       });
       if (!stockItem) {
         res.status(400).json({ error: { message: 'Invalid stockItemId' } });
+        return;
+      }
+      const warehouseError = inactiveWarehouseError(stockItem.warehouse);
+      if (warehouseError) {
+        res.status(400).json({ error: { message: warehouseError } });
         return;
       }
 

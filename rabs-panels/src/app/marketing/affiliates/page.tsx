@@ -3,13 +3,14 @@ import { useEffect, useState, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
-import { listAffiliates, createAffiliate, updateAffiliate, deleteAffiliate, listAffiliateConversions, listAffiliateLinks, createAffiliatePayout } from '@/lib/api';
+import { listAffiliates, createAffiliate, updateAffiliate, deleteAffiliate, listAffiliateConversions, listAffiliateLinks, createAffiliatePayout, listAffiliatePayouts } from '@/lib/api';
 import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
+import { AffiliatePayoutsList } from '@/components/marketing/affiliate-payouts';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
 import { ColumnDef } from '@tanstack/react-table';
-import { Pencil, Trash2, Plus, X, Link2, BarChart3 } from 'lucide-react';
+import { Pencil, Trash2, Plus, X, Link2, BarChart3, Wallet } from 'lucide-react';
 
 function AffiliatesPage() {
   const router = useRouter();
@@ -30,6 +31,9 @@ function AffiliatesPage() {
   const [conversions, setConversions] = useState<any[]>([]);
   const [b2bOnly, setB2bOnly] = useState(preferB2b);
   const [b2bSummary, setB2bSummary] = useState<any[]>([]);
+  const [tab, setTab] = useState<'affiliates' | 'payouts'>(searchParams.get('tab') === 'payouts' ? 'payouts' : 'affiliates');
+  const [payoutsRefresh, setPayoutsRefresh] = useState(0);
+  const [creatingPayout, setCreatingPayout] = useState(false);
   const autoOpened = useRef(false);
 
   const loadData = async () => {
@@ -115,19 +119,37 @@ function AffiliatesPage() {
     }
   };
 
+  /** Covers the 30 days to today, starting after the latest payout so no conversion is paid twice. */
   const handlePayout = async () => {
     if (!detail) return;
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - 30);
+    setCreatingPayout(true);
     try {
-      await createAffiliatePayout(detail.id, {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - 30);
+      const existing = await listAffiliatePayouts({ affiliateId: detail.id });
+      const lastEnd = (existing.data || [])
+        .filter((p: any) => p.status !== 'failed')
+        .map((p: any) => new Date(p.periodEnd))
+        .sort((a: Date, b: Date) => b.getTime() - a.getTime())[0];
+      if (lastEnd && lastEnd >= start) {
+        start.setTime(lastEnd.getTime());
+        start.setDate(start.getDate() + 1);
+      }
+      if (start > end) {
+        toast.error('The latest payout already covers today. Create the next payout tomorrow or later.');
+        return;
+      }
+      const res = await createAffiliatePayout(detail.id, {
         periodStart: start.toISOString().slice(0, 10),
         periodEnd: end.toISOString().slice(0, 10)
       });
-      toast.success('Payout created for last 30 days');
+      toast.success(`Payout ${res.data?.payoutNumber || ''} created (${start.toLocaleDateString('en-GB')} – ${end.toLocaleDateString('en-GB')})`);
+      setPayoutsRefresh((n) => n + 1);
     } catch (error: any) {
       toast.error(error.response?.data?.error?.message || 'Payout failed');
+    } finally {
+      setCreatingPayout(false);
     }
   };
 
@@ -251,7 +273,31 @@ function AffiliatesPage() {
             </div>
           )}
 
-          {items.length === 0 ? (
+          <div className="mb-4 inline-flex rounded-xl border border-border bg-card p-1 text-sm">
+            {([['affiliates', 'Affiliates'], ['payouts', 'Payouts']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 font-medium transition-colors ${tab === key ? 'bg-brand text-white' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {key === 'payouts' && <Wallet className="h-4 w-4" />}
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'payouts' ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Every affiliate payout with its period, conversions and amount. Open a payout to see the orders it covers and mark it paid.
+                Create payouts from an affiliate&apos;s Partner Desk (link icon on the Affiliates tab).
+              </p>
+              <div className="bg-card rounded-lg border shadow-sm">
+                <AffiliatePayoutsList refreshKey={payoutsRefresh} />
+              </div>
+            </div>
+          ) : items.length === 0 ? (
             <div className="bg-card rounded-lg border shadow-sm p-12 text-center space-y-4">
               <p className="font-medium">No affiliates yet</p>
               <p className="text-sm text-muted-foreground">Create a partner to track referral codes and commissions.</p>
@@ -377,7 +423,7 @@ function AffiliatesPage() {
 
           {detail && (
             <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-card w-full max-w-xl rounded-lg shadow-lg border border-border p-4 space-y-4 max-h-[90vh] overflow-auto">
+              <div className="bg-card w-full max-w-3xl rounded-lg shadow-lg border border-border p-4 space-y-4 max-h-[90vh] overflow-auto">
                 <div className="flex justify-between items-center">
                   <div>
                     <h3 className="font-semibold">{detail.contactName} · {detail.affiliateCode}</h3>
@@ -408,9 +454,20 @@ function AffiliatesPage() {
                     </ul>
                   )}
                 </div>
-                <button onClick={handlePayout} className="px-3 py-2 bg-primary text-primary-foreground rounded-md text-sm">
-                  Create 30-day payout
-                </button>
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <h4 className="text-sm font-medium">Payouts</h4>
+                    <button
+                      onClick={handlePayout}
+                      disabled={creatingPayout}
+                      className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs disabled:opacity-50"
+                      title="Covers the last 30 days, starting after the previous payout"
+                    >
+                      {creatingPayout ? 'Creating…' : 'Create 30-day payout'}
+                    </button>
+                  </div>
+                  <AffiliatePayoutsList affiliateId={String(detail.id)} refreshKey={payoutsRefresh} compact />
+                </div>
               </div>
             </div>
           )}

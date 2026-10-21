@@ -4,6 +4,7 @@ import { PriceListItem } from '@entities/catalog/PriceListItem.js';
 import { PriceList } from '@entities/catalog/PriceList.js';
 import { Variant } from '@entities/catalog/Variant.js';
 import { z } from 'zod';
+import { zodMessage } from '@services/catalog/zodMessage.js';
 
 const createPriceListItemSchema = z.object({
   priceListId: z.string(),
@@ -66,7 +67,7 @@ export class PriceListItemsController {
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createPriceListItemSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
@@ -126,7 +127,7 @@ export class PriceListItemsController {
     const parsed = updatePriceListItemSchema.safeParse(req.body);
     
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 

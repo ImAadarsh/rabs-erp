@@ -6,7 +6,11 @@ import { usePathname, useRouter } from 'next/navigation';
 import { clearSession } from '@/lib/auth';
 import { useSession } from '@/hooks/use-session';
 import { useUI } from '@/lib/ui';
-import { useEffect } from 'react';
+import { createContext, useContext, useEffect, useMemo } from 'react';
+import { allowedPagesFromSession, canAccessPath, type AllowedPages } from '@/lib/page-access';
+
+// Role page permissions for the rendered nav; null = unrestricted.
+const AllowedPagesContext = createContext<AllowedPages>(null);
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -30,6 +34,7 @@ export function Sidebar() {
   const { sidebarOpen, toggleSidebar } = useUI();
   const { session, hydrated } = useSession();
   const userRoles = session?.user?.roles || [];
+  const allowedPages = useMemo(() => (hydrated ? allowedPagesFromSession(session) : null), [hydrated, session]);
 
   // Helper to check if user has required roles
   const hasRole = (requiredRoles: string[]) => {
@@ -66,7 +71,7 @@ export function Sidebar() {
   }, [pathname, toggleSidebar]);
 
   return (
-    <>
+    <AllowedPagesContext.Provider value={allowedPages}>
       {/* Desktop */}
       <aside className="hidden lg:flex fixed left-0 top-0 h-screen w-[280px] bg-[#0f0f0f]/95 backdrop-blur-2xl text-white p-5 border-r border-white/5 flex-col shadow-[4px_0_24px_rgba(0,0,0,0.4)] z-50">
         <div className="flex items-center gap-3 px-2 mb-6 mt-2">
@@ -83,9 +88,9 @@ export function Sidebar() {
                 <div className="text-[10px] uppercase tracking-widest font-semibold text-white/40">Identity & Access</div>
               </div>
               <Item href="/iam/dashboard" icon={<LayoutDashboard size={18} />} label="Overview" active={pathname === '/iam/dashboard'} />
-              <Item href="/iam/organizations" icon={<Building2 size={18} />} label="Organizations" active={pathname?.startsWith('/iam/organizations')} />
               {hasRole(['ADMIN', 'SUPER_ADMIN']) && (
                 <>
+                  <Item href="/iam/organizations" icon={<Building2 size={18} />} label="Organizations" active={pathname?.startsWith('/iam/organizations')} />
                   <Item href="/iam/users" icon={<Users size={18} />} label="Users" active={pathname?.startsWith('/iam/users')} />
                   <Item href="/iam/roles" icon={<Shield size={18} />} label="Roles" active={pathname?.startsWith('/iam/roles')} />
                   <Item href="/iam/audit-logs" icon={<FileClock size={18} />} label="Audit Logs" active={pathname?.startsWith('/iam/audit-logs')} />
@@ -169,11 +174,13 @@ export function Sidebar() {
               </div>
               <Item href="/orders/dashboard" icon={<LayoutDashboard size={18} />} label="Overview" active={pathname === '/orders/dashboard'} />
               {hasRole(['ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'CUSTOMER_SERVICE']) && (
-                <>
-                  <Item href="/orders/customers" icon={<Users size={18} />} label="Customers" active={pathname?.startsWith('/orders/customers')} />
-                  <Item href="/orders/orders" icon={<ShoppingCart size={18} />} label="Orders" active={pathname?.startsWith('/orders/orders')} />
-                  <Item href="/orders/returns" icon={<RotateCcw size={18} />} label="Returns" active={pathname?.startsWith('/orders/returns')} />
-                </>
+                <Item href="/orders/customers" icon={<Users size={18} />} label="Customers" active={pathname?.startsWith('/orders/customers')} />
+              )}
+              {hasRole(['ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'CUSTOMER_SERVICE', 'WAREHOUSE_MANAGER']) && (
+                <Item href="/orders/orders" icon={<ShoppingCart size={18} />} label="Orders" active={pathname?.startsWith('/orders/orders')} />
+              )}
+              {hasRole(['ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'CUSTOMER_SERVICE']) && (
+                <Item href="/orders/returns" icon={<RotateCcw size={18} />} label="Returns" active={pathname?.startsWith('/orders/returns')} />
               )}
               {hasRole(['ADMIN', 'SUPER_ADMIN']) && (
                 <Item href="/orders/channel-sync" icon={<Download size={18} />} label="Channel Sync" active={pathname?.startsWith('/orders/channel-sync')} />
@@ -354,7 +361,9 @@ export function Sidebar() {
               {hasRole(['ADMIN', 'SUPER_ADMIN', 'CS_AGENT', 'CUSTOMER_SERVICE', 'SALES_REP']) && (
                 <>
                   <Item href="/crm/tickets" icon={<MessageSquare size={18} />} label="Tickets" active={pathname?.startsWith('/crm/tickets')} />
-                  <Item href="/crm/canned-responses" icon={<FileText size={18} />} label="Canned Responses" active={pathname?.startsWith('/crm/canned-responses')} />
+                  {hasRole(['ADMIN', 'SUPER_ADMIN', 'CS_AGENT', 'CUSTOMER_SERVICE']) && (
+                    <Item href="/crm/canned-responses" icon={<FileText size={18} />} label="Canned Responses" active={pathname?.startsWith('/crm/canned-responses')} />
+                  )}
                 </>
               )}
               {hasRole(['ADMIN', 'SUPER_ADMIN']) && (
@@ -451,9 +460,9 @@ export function Sidebar() {
                     <div className="text-[10px] uppercase tracking-widest font-semibold text-white/40">Identity & Access</div>
                   </div>
                   <Item href="/iam/dashboard" icon={<LayoutDashboard size={18} />} label="Overview" active={pathname === '/iam/dashboard'} />
-                  <Item href="/iam/organizations" icon={<Building2 size={18} />} label="Organizations" active={pathname?.startsWith('/iam/organizations')} />
                   {hasRole(['ADMIN', 'SUPER_ADMIN']) && (
                     <>
+                      <Item href="/iam/organizations" icon={<Building2 size={18} />} label="Organizations" active={pathname?.startsWith('/iam/organizations')} />
                       <Item href="/iam/users" icon={<Users size={18} />} label="Users" active={pathname?.startsWith('/iam/users')} />
                       <Item href="/iam/roles" icon={<Shield size={18} />} label="Roles" active={pathname?.startsWith('/iam/roles')} />
                       <Item href="/iam/audit-logs" icon={<FileClock size={18} />} label="Audit Logs" active={pathname?.startsWith('/iam/audit-logs')} />
@@ -537,11 +546,13 @@ export function Sidebar() {
                   </div>
                   <Item href="/orders/dashboard" icon={<LayoutDashboard size={18} />} label="Overview" active={pathname === '/orders/dashboard'} />
                   {hasRole(['ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'CUSTOMER_SERVICE']) && (
-                    <>
-                      <Item href="/orders/customers" icon={<Users size={18} />} label="Customers" active={pathname?.startsWith('/orders/customers')} />
-                      <Item href="/orders/orders" icon={<ShoppingCart size={18} />} label="Orders" active={pathname?.startsWith('/orders/orders')} />
-                      <Item href="/orders/returns" icon={<RotateCcw size={18} />} label="Returns" active={pathname?.startsWith('/orders/returns')} />
-                    </>
+                    <Item href="/orders/customers" icon={<Users size={18} />} label="Customers" active={pathname?.startsWith('/orders/customers')} />
+                  )}
+                  {hasRole(['ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'CUSTOMER_SERVICE', 'WAREHOUSE_MANAGER']) && (
+                    <Item href="/orders/orders" icon={<ShoppingCart size={18} />} label="Orders" active={pathname?.startsWith('/orders/orders')} />
+                  )}
+                  {hasRole(['ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'CUSTOMER_SERVICE']) && (
+                    <Item href="/orders/returns" icon={<RotateCcw size={18} />} label="Returns" active={pathname?.startsWith('/orders/returns')} />
                   )}
                   {hasRole(['ADMIN', 'SUPER_ADMIN']) && (
                     <Item href="/orders/channel-sync" icon={<Download size={18} />} label="Channel Sync" active={pathname?.startsWith('/orders/channel-sync')} />
@@ -722,7 +733,9 @@ export function Sidebar() {
                   {hasRole(['ADMIN', 'SUPER_ADMIN', 'CS_AGENT', 'CUSTOMER_SERVICE', 'SALES_REP']) && (
                     <>
                       <Item href="/crm/tickets" icon={<MessageSquare size={18} />} label="Tickets" active={pathname?.startsWith('/crm/tickets')} />
-                      <Item href="/crm/canned-responses" icon={<FileText size={18} />} label="Canned Responses" active={pathname?.startsWith('/crm/canned-responses')} />
+                      {hasRole(['ADMIN', 'SUPER_ADMIN', 'CS_AGENT', 'CUSTOMER_SERVICE']) && (
+                        <Item href="/crm/canned-responses" icon={<FileText size={18} />} label="Canned Responses" active={pathname?.startsWith('/crm/canned-responses')} />
+                      )}
                     </>
                   )}
                   {hasRole(['ADMIN', 'SUPER_ADMIN']) && (
@@ -799,7 +812,7 @@ export function Sidebar() {
           </aside>
         </div>
       )}
-    </>
+    </AllowedPagesContext.Provider>
   );
 }
 
@@ -823,6 +836,8 @@ function SocialNav({ pathname }: { pathname: string | null }) {
 }
 
 function Item({ href, icon, label, active }: { href: string; icon: React.ReactNode; label: string; active?: boolean }) {
+  const allowedPages = useContext(AllowedPagesContext);
+  if (!canAccessPath(href.split('?')[0], allowedPages)) return null;
   return (
     <Link
       href={href}

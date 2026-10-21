@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { AppDataSource } from '@config/data-source.js';
 import { Organization } from '@entities/iam/Organization.js';
+import { User } from '@entities/iam/User.js';
 import { z } from 'zod';
 import { uploadFile, deleteFileByUrl } from '@utils/storage.js';
 
@@ -68,7 +69,7 @@ export class OrganizationsController {
     // Only super admin can create organizations
     const parsed = createOrganizationSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: `Invalid payload: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, details: parsed.error.issues } });
       return;
     }
 
@@ -112,7 +113,7 @@ export class OrganizationsController {
     const parsed = updateOrganizationSchema.safeParse(req.body);
     
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: `Invalid payload: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, details: parsed.error.issues } });
       return;
     }
 
@@ -188,6 +189,44 @@ export class OrganizationsController {
 
     await repo.save(org);
     res.json({ data: org });
+  }
+
+  /** Soft delete (sets deleted_at); TypeORM finds then hide it from every list and picker. */
+  static async remove(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const auth = (req as any).auth as { sub: string; orgId: string; roles: string[] };
+    const parsed = z.object({ confirmName: z.string() }).safeParse(req.body ?? {});
+    const repo = AppDataSource.getRepository(Organization);
+    const org = await repo.findOne({ where: { id } });
+
+    if (!org) {
+      res.status(404).json({ error: { message: 'Organization not found' } });
+      return;
+    }
+    if (!parsed.success || parsed.data.confirmName.trim() !== org.name.trim()) {
+      res.status(400).json({ error: { message: 'Type the organization name exactly to confirm deletion' } });
+      return;
+    }
+    if (String(org.id) === String(auth.orgId)) {
+      res.status(400).json({ error: { message: 'You cannot delete the organization you belong to' } });
+      return;
+    }
+    if ((await repo.count()) <= 1) {
+      res.status(400).json({ error: { message: 'The last organization cannot be deleted' } });
+      return;
+    }
+    const userCount = await AppDataSource.getRepository(User).count({ where: { organization: { id: org.id } } });
+    if (userCount > 0) {
+      res.status(400).json({
+        error: { message: `This organization still has ${userCount} user(s). Move or delete them before deleting the organization.` }
+      });
+      return;
+    }
+
+    org.status = 'inactive';
+    await repo.save(org);
+    await repo.softDelete(org.id);
+    res.json({ data: { id: org.id, deleted: true } });
   }
 }
 

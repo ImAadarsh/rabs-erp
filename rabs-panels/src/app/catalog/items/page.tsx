@@ -20,8 +20,10 @@ import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
-import { Pencil, Trash2, Plus, X, Upload, Loader2, ImageIcon, Star, Download } from 'lucide-react';
+import { Pencil, Trash2, Plus, X, Upload, Loader2, ImageIcon, Star, RefreshCw, Settings2, Tag, Download } from 'lucide-react';
+import { MediaThumb } from '@/components/catalog/media-preview';
 import Link from 'next/link';
 
 type CatalogItem = {
@@ -344,10 +346,31 @@ function ProductFields({
   );
 }
 
+const CATALOG_PAGE_SIZE = 500;
+
+/** Every catalogue item: first page, then the remaining pages in parallel. */
+async function loadAllCatalogItems(organizationId?: string) {
+  const first = await listCatalogItems({ organizationId, page: 1, limit: CATALOG_PAGE_SIZE });
+  const totalPages = first.pagination?.totalPages ?? 1;
+  const rest = await Promise.all(
+    Array.from({ length: Math.max(0, totalPages - 1) }, (_, i) =>
+      listCatalogItems({ organizationId, page: i + 2, limit: CATALOG_PAGE_SIZE })
+    )
+  );
+  return [...(first.data || []), ...rest.flatMap((r) => r.data || [])];
+}
+
 export default function CatalogItemsPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'SALES_REP']);
+  const { can } = useApiAccess();
+  const canCreate = can('POST', '/api/catalog/items');
+  const canUpdate = can('PATCH', '/api/catalog/items/:id');
+  const canDelete = can('DELETE', '/api/catalog/items/:id');
+  const canImport = can('POST', '/api/catalog/inventory-import/execute');
+  const canAddMedia = can('POST', '/api/catalog/media');
+  const canDeleteMedia = can('DELETE', '/api/catalog/media/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [showCreate, setShowCreate] = useState(false);
@@ -363,12 +386,9 @@ export default function CatalogItemsPage() {
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  async function refreshItems() {
+  async function refreshItems(organizationId?: string) {
     const isSuper = session?.user?.roles?.includes('SUPER_ADMIN');
-    const res = await listCatalogItems(
-      isSuper ? undefined : { organizationId: session?.user?.organizationId }
-    );
-    setItems(res.data || []);
+    setItems(await loadAllCatalogItems(isSuper ? organizationId : (organizationId || session?.user?.organizationId)));
   }
 
   useEffect(() => {
@@ -381,7 +401,7 @@ export default function CatalogItemsPage() {
       try {
         const isSuper = session?.user?.roles?.includes('SUPER_ADMIN');
         const [itemsRes, orgsRes, taxCodesRes] = await Promise.all([
-          listCatalogItems(isSuper ? undefined : { organizationId: session?.user?.organizationId }),
+          loadAllCatalogItems(isSuper ? undefined : session?.user?.organizationId).then((data) => ({ data })),
           listOrganizations(),
           listTaxCodes({ organizationId: session?.user?.organizationId })
         ]);
@@ -419,7 +439,7 @@ export default function CatalogItemsPage() {
         const codes = res.data || [];
         setTaxCodes(codes);
         setForm((prev) => {
-          if (prev.taxCodeId && !codes.some((tc: { id: string }) => String(tc.id) === String(prev.taxCodeId))) {
+          if (prev.taxCodeId && !codes.some((tc: any) => String(tc.id) === String(prev.taxCodeId))) {
             return { ...prev, taxCodeId: '' };
           }
           return prev;
@@ -427,6 +447,16 @@ export default function CatalogItemsPage() {
       })
       .catch(() => setTaxCodes([]));
   }, [form.organizationId]);
+
+  async function reloadTaxCodes(organizationId?: string) {
+    try {
+      const orgId = organizationId || form.organizationId || session?.user?.organizationId;
+      const res = await listTaxCodes({ organizationId: orgId });
+      setTaxCodes(res.data || []);
+    } catch {
+      toast.error('Failed to load tax codes');
+    }
+  }
 
   async function loadMedia(catalogItemId: string) {
     try {
@@ -500,7 +530,7 @@ export default function CatalogItemsPage() {
           failedImages += 1;
         }
       }
-      await refreshItems();
+      await refreshItems(form.organizationId);
       setShowCreate(false);
       setForm({ ...emptyForm, organizationId: session.user.organizationId || '' });
       setCreateImages([]);
@@ -746,6 +776,7 @@ export default function CatalogItemsPage() {
         header: '',
         cell: ({ row }) => (
           <div className="flex items-center gap-2">
+            {canUpdate && (
             <button
               onClick={() => openEdit(row.original)}
               className="p-1 hover:bg-gray-100 rounded"
@@ -754,6 +785,8 @@ export default function CatalogItemsPage() {
             >
               <Pencil className="h-4 w-4" />
             </button>
+            )}
+            {canDelete && (
             <button
               onClick={() => setConfirmDel(row.original)}
               className="p-1 hover:bg-gray-100 rounded text-red-600"
@@ -762,11 +795,12 @@ export default function CatalogItemsPage() {
             >
               <Trash2 className="h-4 w-4" />
             </button>
+            )}
           </div>
         )
       }
     ],
-    []
+    [canUpdate, canDelete]
   );
 
   if (!hydrated || loading) {
@@ -816,16 +850,19 @@ export default function CatalogItemsPage() {
                     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
                     const a = document.createElement('a');
                     a.href = URL.createObjectURL(blob);
-                    a.download = `rabs-catalog-${new Date().toISOString().slice(0, 10)}.csv`;
+                    a.download = `zaam-catalog-${new Date().toISOString().slice(0, 10)}.csv`;
                     a.click();
                     URL.revokeObjectURL(a.href);
                   }}
                 >
                   <Download className="h-4 w-4" /> Export
                 </button>
+                {canImport && (
                 <Link href="/catalog/inventory-import" className="btn btn-outline inline-flex items-center gap-2">
                   <Upload className="h-4 w-4" /> Import Excel
                 </Link>
+                )}
+                {canCreate && (
                 <button
                   type="button"
                   onClick={() => setShowCreate(true)}
@@ -833,6 +870,7 @@ export default function CatalogItemsPage() {
                 >
                   <Plus className="h-4 w-4" /> Add Item
                 </button>
+                )}
               </div>
             </div>
 
@@ -865,6 +903,7 @@ export default function CatalogItemsPage() {
                         <h4 className="text-sm font-semibold inline-flex items-center gap-2">
                           <ImageIcon size={16} /> Product images
                         </h4>
+                        {canAddMedia && (
                         <label className="btn btn-outline text-xs inline-flex items-center gap-1 cursor-pointer">
                           <Upload size={14} /> Add images
                           <input
@@ -879,6 +918,7 @@ export default function CatalogItemsPage() {
                             }}
                           />
                         </label>
+                        )}
                       </div>
                       {createImages.length === 0 ? (
                         <p className="text-xs text-muted-foreground">Optional — select one or more images; the first becomes the primary image. Click a thumbnail to view it.</p>
@@ -945,6 +985,7 @@ export default function CatalogItemsPage() {
                         <h4 className="text-sm font-semibold inline-flex items-center gap-2">
                           <ImageIcon size={16} /> Product images
                         </h4>
+                        {canAddMedia && (
                         <label className="btn btn-outline text-xs inline-flex items-center gap-1 cursor-pointer">
                           {uploadingMedia ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
                           Add images
@@ -960,6 +1001,7 @@ export default function CatalogItemsPage() {
                             }}
                           />
                         </label>
+                        )}
                       </div>
                       {media.length === 0 ? (
                         <p className="text-xs text-muted-foreground">
@@ -979,6 +1021,7 @@ export default function CatalogItemsPage() {
                                   <Star size={10} /> Primary
                                 </span>
                               )}
+                              {canDeleteMedia && (
                               <button
                                 type="button"
                                 onClick={() => onRemoveImage(m.id)}
@@ -986,6 +1029,7 @@ export default function CatalogItemsPage() {
                               >
                                 <X size={12} />
                               </button>
+                              )}
                             </div>
                           ))}
                         </div>

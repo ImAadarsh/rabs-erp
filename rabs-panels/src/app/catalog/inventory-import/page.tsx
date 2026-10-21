@@ -22,8 +22,11 @@ import {
   Package2,
   Warehouse,
   Users,
-  X
+  X,
+  Download
 } from 'lucide-react';
+
+const TEMPLATE_URL = '/templates/Inventory_Import_Template.xlsx';
 
 type PreviewData = {
   rowCount: number;
@@ -32,7 +35,19 @@ type PreviewData = {
   warehouses: string[];
   suppliers: string[];
   warnings: string[];
+  warningCount?: number;
 };
+
+function formatSheetDate(value: unknown): string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return '-';
+  const [y, m, d] = value.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC'
+  });
+}
 
 type ImportResult = {
   productsCreated: number;
@@ -58,7 +73,7 @@ export default function InventoryImportPage() {
   const [businessUnits, setBusinessUnits] = useState<any[]>([]);
   const [organizationId, setOrganizationId] = useState('');
   const [businessUnitId, setBusinessUnitId] = useState('');
-  const [duplicateMode, setDuplicateMode] = useState<'skip' | 'update'>('update');
+  const [duplicateMode, setDuplicateMode] = useState<'skip' | 'update'>('skip');
   const [importInventory, setImportInventory] = useState(true);
   const [file, setFile] = useState<File | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -177,11 +192,21 @@ export default function InventoryImportPage() {
       <main className="flex-1 lg:ml-[280px]">
         <Header title="Catalog · Inventory Import" />
         <div className="p-6 space-y-6 max-w-5xl">
-          <div>
-            <h1 className="text-2xl font-bold">Import Inventory Excel</h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Upload the inventory sheet to create products, barcodes, warehouses, bins, suppliers, and stock levels.
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold">Import Inventory Excel</h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Upload the inventory sheet to create products, barcodes, warehouses, bins, suppliers, and stock levels.
+              </p>
+            </div>
+            <a
+              href={TEMPLATE_URL}
+              download
+              className="btn btn-outline inline-flex items-center gap-2 text-sm"
+            >
+              <Download size={16} />
+              Download sample Excel
+            </a>
           </div>
 
           <div className="rounded-xl border bg-card p-5 space-y-4">
@@ -219,8 +244,8 @@ export default function InventoryImportPage() {
                   value={duplicateMode}
                   onChange={(e) => setDuplicateMode(e.target.value as 'skip' | 'update')}
                 >
-                  <option value="update">Update existing</option>
                   <option value="skip">Skip existing</option>
+                  <option value="update">Update existing</option>
                 </select>
               </label>
               <label className="text-sm flex items-end gap-2 pb-2">
@@ -242,8 +267,15 @@ export default function InventoryImportPage() {
               <p className="text-sm font-medium mb-1">
                 {file ? file.name : 'Drop inventory Excel here or choose a file'}
               </p>
+              <p className="text-xs text-muted-foreground mb-1">
+                Required columns: <strong>SKU / Item Code</strong> and <strong>Product Name</strong>. Optional: Barcode, Category, Brand, UOM, Pack Size, Qty, Prices, Tax, Warehouse, Bin, Supplier, Batch, Expiry, Status, Remarks…
+              </p>
               <p className="text-xs text-muted-foreground mb-4">
-                Expected columns: SKU, Barcode, Name, Category, Sub-Category, UOM, Pack Size, Qty, Prices, Tax, Warehouse, Bin, Supplier, Status, Remarks…
+                Not sure of the format?{' '}
+                <a href={TEMPLATE_URL} download className="underline text-primary">
+                  Download the sample Excel
+                </a>{' '}
+                (example rows + an Instructions sheet). Dates are read as UK day/month: dd/mm/yyyy (e.g. 07/10/2026 = 7 Oct 2026).
               </p>
               <input
                 type="file"
@@ -323,6 +355,8 @@ export default function InventoryImportPage() {
                 <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                   <div className="font-medium flex items-center gap-1 mb-1">
                     <AlertTriangle size={14} /> Warnings
+                    {(preview.warningCount ?? preview.warnings.length) > 10 &&
+                      ` (showing 10 of ${preview.warningCount ?? preview.warnings.length})`}
                   </div>
                   <ul className="list-disc pl-4 space-y-0.5">
                     {preview.warnings.slice(0, 10).map((w, i) => (
@@ -342,6 +376,8 @@ export default function InventoryImportPage() {
                       <th className="px-3 py-2 text-left">Warehouse</th>
                       <th className="px-3 py-2 text-right">Qty</th>
                       <th className="px-3 py-2 text-right">Cost</th>
+                      <th className="px-3 py-2 text-left whitespace-nowrap">Expiry</th>
+                      <th className="px-3 py-2 text-left whitespace-nowrap">Date Added</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -353,6 +389,8 @@ export default function InventoryImportPage() {
                         <td className="px-3 py-2 max-w-[160px] truncate">{String(row.warehouseName ?? '-')}</td>
                         <td className="px-3 py-2 text-right">{String(row.openingQuantity ?? '-')}</td>
                         <td className="px-3 py-2 text-right">{String(row.costPrice ?? '-')}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{formatSheetDate(row.expiryDate)}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">{formatSheetDate(row.dateAdded)}</td>
                       </tr>
                     ))}
                   </tbody>

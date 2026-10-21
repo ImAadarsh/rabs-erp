@@ -12,6 +12,7 @@ import { ColumnDef } from '@tanstack/react-table';
 import { toast } from 'sonner';
 import Link from 'next/link';
 import { crmApiError } from '@/lib/crm-utils';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { CrmModal, CrmField, CrmModalActions, crmInputClass, crmTextareaClass } from '@/components/crm/crm-modal';
 import { CrmCustomerSelect, customerOptionFromRecord } from '@/components/crm/crm-customer-select';
 
@@ -26,6 +27,8 @@ export default function TicketsPage() {
 function TicketsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { can } = useApiAccess();
+  const canCreate = can('POST', '/api/crm/tickets');
   const [tickets, setTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(searchParams.get('new') === 'true');
@@ -227,7 +230,7 @@ function TicketsPageInner() {
       <div className="flex flex-col min-w-0 lg:ml-[280px]">
         <Header
           title="Support Tickets"
-          actions={[{ label: 'Create Ticket', onClick: () => setShowCreate(true), icon: <Plus size={18} /> }]}
+          actions={canCreate ? [{ label: 'Create Ticket', onClick: () => setShowCreate(true), icon: <Plus size={18} /> }] : []}
         />
 
         <main className="p-6 md:p-8 space-y-5">
@@ -246,6 +249,7 @@ function TicketsPageInner() {
               <MessageSquare className="mx-auto mb-3 opacity-40" size={32} />
               <p className="font-medium text-foreground">No tickets yet</p>
               <p className="text-sm mt-1">Open a support ticket to start the queue.</p>
+              {canCreate && (
               <button
                 type="button"
                 onClick={() => setShowCreate(true)}
@@ -253,6 +257,7 @@ function TicketsPageInner() {
               >
                 <Plus size={16} /> Create Ticket
               </button>
+              )}
             </div>
           ) : (
             <RichDataTable data={tickets} columns={columns} hideSearch searchPlaceholder="Search tickets..." />
@@ -260,7 +265,7 @@ function TicketsPageInner() {
         </main>
       </div>
 
-      <CrmModal open={showCreate} onClose={() => setShowCreate(false)} title="Create New Ticket" icon={Plus}>
+      <CrmModal open={showCreate && canCreate} onClose={() => setShowCreate(false)} title="Create New Ticket" icon={Plus}>
         <form onSubmit={handleCreate} className="space-y-4">
           <CrmField label="Customer">
             <CrmCustomerSelect

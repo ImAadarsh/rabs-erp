@@ -7,6 +7,7 @@ import { RoleAssignment } from '@entities/iam/RoleAssignment.js';
 import { User } from '@entities/iam/User.js';
 import { BusinessUnit } from '@entities/iam/BusinessUnit.js';
 import { Location } from '@entities/iam/Location.js';
+import { clearPageAccessCache } from '@services/iam/pageAccess.service.js';
 
 const createRoleSchema = z.object({
   organizationId: z.string(),
@@ -25,14 +26,14 @@ const assignRoleSchema = z.object({
 export class RolesController {
   static async list(req: Request, res: Response): Promise<void> {
     const repo = AppDataSource.getRepository(Role);
-    const roles = await repo.find({ take: 200 });
+    const roles = await repo.find({ take: 200, order: { id: 'DESC' } });
     res.json({ data: roles });
   }
 
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createRoleSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: `Invalid payload: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, details: parsed.error.issues } });
       return;
     }
     const org = await AppDataSource.getRepository(Organization).findOne({ where: { id: parsed.data.organizationId } });
@@ -54,7 +55,7 @@ export class RolesController {
   static async assign(req: Request, res: Response): Promise<void> {
     const parsed = assignRoleSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: `Invalid payload: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, details: parsed.error.issues } });
       return;
     }
     const user = await AppDataSource.getRepository(User).findOne({ 
@@ -117,6 +118,7 @@ export class RolesController {
       // Update existing assignment with same user+role+businessUnit combination
       existing.location = location;
       await repo.save(existing);
+      clearPageAccessCache(user.id);
       
       // Fetch with relations for response
       const updated = await repo.findOne({
@@ -148,6 +150,7 @@ export class RolesController {
         validUntil: null
       });
       await repo.save(ra);
+      clearPageAccessCache(user.id);
       
       // Fetch with relations for response
       const saved = await repo.findOne({
@@ -165,7 +168,7 @@ export class RolesController {
     });
     const parsed = unassignSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: `Invalid payload: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, details: parsed.error.issues } });
       return;
     }
 
@@ -187,6 +190,7 @@ export class RolesController {
     }
 
     await repo.remove(assignment);
+    clearPageAccessCache(parsed.data.userId);
     res.json({ data: { message: 'Role assignment removed successfully' } });
   }
 
@@ -199,7 +203,7 @@ export class RolesController {
     });
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: `Invalid payload: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`, details: parsed.error.issues } });
       return;
     }
     const repo = AppDataSource.getRepository(Role);
@@ -212,6 +216,7 @@ export class RolesController {
     if (parsed.data.code) role.code = parsed.data.code;
     if (parsed.data.permissions !== undefined) role.permissions = parsed.data.permissions;
     await repo.save(role);
+    clearPageAccessCache();
     res.json({ data: role });
   }
 }

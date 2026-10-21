@@ -20,12 +20,13 @@ ordersRouter.use(authMiddleware);
 ordersRouter.use(auditMiddleware);
 
 // Channel order sync (POS + linked websites)
-ordersRouter.get('/channel-sync/connections', requireRoles('ADMIN', 'SUPER_ADMIN'), OrderChannelSyncController.listConnections);
+ordersRouter.get('/channel-sync/connections', requireRoles('ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'CUSTOMER_SERVICE', 'WAREHOUSE_MANAGER', 'FINANCE', 'ACCOUNTANT'), OrderChannelSyncController.listConnections);
+ordersRouter.get('/channel-sync/status', requireRoles('ADMIN', 'SUPER_ADMIN'), OrderChannelSyncController.status);
 ordersRouter.post('/channel-sync/preview', requireRoles('ADMIN', 'SUPER_ADMIN'), OrderChannelSyncController.preview);
 ordersRouter.post('/channel-sync/import', requireRoles('ADMIN', 'SUPER_ADMIN'), OrderChannelSyncController.import);
 
 // Customers
-ordersRouter.get('/customers', requireRoles('ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'CUSTOMER_SERVICE'), CustomersController.list);
+ordersRouter.get('/customers', requireRoles('ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'CUSTOMER_SERVICE', 'CS_AGENT', 'PROJECT_MANAGER', 'FINANCE', 'ACCOUNTANT'), CustomersController.list);
 ordersRouter.get('/customers/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'SALES_REP', 'CUSTOMER_SERVICE'), CustomersController.get);
 ordersRouter.post('/customers', requireRoles('ADMIN', 'SUPER_ADMIN', 'SALES_REP'), CustomersController.create);
 ordersRouter.patch('/customers/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'SALES_REP'), CustomersController.update);

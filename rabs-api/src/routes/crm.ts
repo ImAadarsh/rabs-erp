@@ -44,6 +44,8 @@ crmRouter.delete('/contacts/:id', requireRoles(...staff), ContactsController.rem
 crmRouter.get('/leads', requireRoles(...staff), LeadsController.list);
 crmRouter.post('/leads', requireRoles(...staff), LeadsController.create);
 crmRouter.post('/leads/bulk-assign', requireRoles(...staff), LeadsController.bulkAssign);
+crmRouter.get('/leads/marketing-segments', requireRoles(...staff), LeadsController.listMarketingSegments);
+crmRouter.post('/leads/bulk-sync-to-marketing', requireRoles(...staff), LeadsController.bulkSyncToMarketing);
 crmRouter.get('/leads/:id', requireRoles(...staff), LeadsController.get);
 crmRouter.patch('/leads/:id', requireRoles(...staff), LeadsController.update);
 crmRouter.post('/leads/:id/convert', requireRoles(...staff), LeadsController.convert);
@@ -115,7 +117,7 @@ crmRouter.get('/canned-responses', requireRoles('CS_AGENT', 'ADMIN', 'SUPER_ADMI
 crmRouter.get('/canned-responses/:id', requireRoles('CS_AGENT', 'ADMIN', 'SUPER_ADMIN', 'CUSTOMER_SERVICE'), CannedResponsesController.get);
 crmRouter.post('/canned-responses', requireRoles('CS_AGENT', 'ADMIN', 'SUPER_ADMIN', 'CUSTOMER_SERVICE'), CannedResponsesController.create);
 crmRouter.patch('/canned-responses/:id', requireRoles('CS_AGENT', 'ADMIN', 'SUPER_ADMIN', 'CUSTOMER_SERVICE'), CannedResponsesController.update);
-crmRouter.delete('/canned-responses/:id', requireRoles('CS_AGENT', 'ADMIN', 'SUPER_ADMIN'), CannedResponsesController.remove);
+crmRouter.delete('/canned-responses/:id', requireRoles('CS_AGENT', 'ADMIN', 'SUPER_ADMIN', 'CUSTOMER_SERVICE'), CannedResponsesController.remove);
 crmRouter.post('/canned-responses/:id/usage', requireRoles('CS_AGENT', 'ADMIN', 'SUPER_ADMIN', 'CUSTOMER_SERVICE'), CannedResponsesController.incrementUsage);
 
 // Customer Tiers

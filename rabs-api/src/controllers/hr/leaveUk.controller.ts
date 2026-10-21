@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { zodMessage } from '@services/finance/zodMessage.js';
 import { AppDataSource } from '@config/data-source.js';
 import { Employee } from '@entities/hr/Employee.js';
 import { HrLeavePolicy } from '@entities/hr/HrLeavePolicy.js';
@@ -7,6 +8,7 @@ import { HrLeaveBalance } from '@entities/hr/HrLeaveBalance.js';
 import { LeaveRequest } from '@entities/hr/LeaveRequest.js';
 import { User } from '@entities/iam/User.js';
 import { orgIdFromReq, userIdFromReq } from '@services/hr/hrScope.js';
+import { computeLeaveBalances } from '@services/hr/leaveBalance.service.js';
 import { IsNull } from 'typeorm';
 
 const leaveTypes = [
@@ -63,7 +65,7 @@ export class LeavePoliciesController {
     try {
       const parsed = policySchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const orgId = parsed.data.organizationId || orgIdFromReq(req);
@@ -94,7 +96,7 @@ export class LeavePoliciesController {
     try {
       const parsed = policySchema.partial().safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const repo = AppDataSource.getRepository(HrLeavePolicy);
@@ -140,20 +142,13 @@ export class LeavePoliciesController {
 export class LeaveBalancesController {
   static async list(req: Request, res: Response): Promise<void> {
     try {
-      const { employeeId, year, page = '1', limit = '50' } = req.query;
-      const take = Math.min(Number(limit) || 50, 200);
-      const skip = (Math.max(Number(page) || 1, 1) - 1) * take;
-      const qb = AppDataSource.getRepository(HrLeaveBalance)
-        .createQueryBuilder('b')
-        .leftJoinAndSelect('b.leavePolicy', 'policy')
-        .leftJoinAndSelect('b.employee', 'emp')
-        .orderBy('b.year', 'DESC')
-        .take(take)
-        .skip(skip);
-      if (employeeId) qb.andWhere('b.employee_id = :employeeId', { employeeId });
-      if (year) qb.andWhere('b.year = :year', { year: Number(year) });
-      const [items, total] = await qb.getManyAndCount();
-      res.json({ data: items, meta: { total, page: Number(page) || 1, limit: take } });
+      const { employeeId, year } = req.query;
+      const items = await computeLeaveBalances({
+        orgId: orgIdFromReq(req),
+        employeeId: employeeId ? String(employeeId) : undefined,
+        year: year ? Number(year) : undefined
+      });
+      res.json({ data: items, meta: { total: items.length } });
     } catch (error: any) {
       res.status(500).json({ error: { message: error.message } });
     }
@@ -163,7 +158,7 @@ export class LeaveBalancesController {
     try {
       const parsed = balanceSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const emp = await AppDataSource.getRepository(Employee).findOne({

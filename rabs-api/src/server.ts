@@ -13,6 +13,12 @@ async function bootstrap(): Promise<void> {
     } catch (schemaErr) {
       console.warn('Social schema ensure skipped:', (schemaErr as Error)?.message);
     }
+    const { startChannelSyncCron } = await import('@services/orders/channelOrderSync.service.js');
+    startChannelSyncCron();
+    const { startLedgerAutoPostCron } = await import('@services/finance/ledgerAutoPost.service.js');
+    startLedgerAutoPostCron();
+    const { startReportSchedulerCron } = await import('@services/analytics/reportScheduler.service.js');
+    startReportSchedulerCron();
     const server = createServer(app);
     server.listen(env.PORT, env.HOST, () => {
       // eslint-disable-next-line no-console

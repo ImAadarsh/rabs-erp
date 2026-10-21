@@ -23,6 +23,15 @@ export class ApiKey {
   @Column({ type: 'json', nullable: true })
   scopes!: any | null;
 
+  @Column({ name: 'last_used_at', type: 'timestamp', nullable: true })
+  lastUsedAt!: Date | null;
+
+  @Column({ name: 'expires_at', type: 'timestamp', nullable: true })
+  expiresAt!: Date | null;
+
+  @Column({ type: 'enum', enum: ['active', 'expired', 'revoked'], default: 'active' })
+  status!: 'active' | 'expired' | 'revoked';
+
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: 'created_by' })
   createdBy!: User | null;

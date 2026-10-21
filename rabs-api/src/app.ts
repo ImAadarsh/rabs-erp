@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import createError from 'http-errors';
 import { env } from './config/env.js';
+import { uploadsRoot } from './utils/storage.js';
 import { iamRouter } from './routes/iam.js';
 import { catalogRouter } from './routes/catalog.js';
 import { inventoryRouter } from './routes/inventory.js';
@@ -18,13 +19,14 @@ import { integrationsRouter } from './routes/integrations.js';
 import { pmRouter } from './routes/pm.js';
 import { fulfillmentRouter } from './routes/fulfillment.js';
 import { rabsRouter } from './routes/rabs.js';
-import { UPLOADS_ROOT } from './services/rabs/rabsCore.js';
+import { requirePageAccess, registerApiRouters } from './middlewares/rbac.js';
+import { secretStrippingReplacer } from './utils/responseSanitizer.js';
 
 const app = express();
+app.set('json replacer', secretStrippingReplacer);
 
 app.use(
   helmet({
-    // Allow B2B website (and other frontends) to read public API responses cross-origin
     crossOriginResourcePolicy: { policy: 'cross-origin' }
   })
 );
@@ -32,7 +34,6 @@ app.use(cors({
   origin: true,
   credentials: true
 }));
-// Login for Business Finish may probe/frame or form-post the OAuth callback.
 app.use('/api/social/meta/callback', (_req, res, next) => {
   res.removeHeader('X-Frame-Options');
   res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
@@ -43,6 +44,19 @@ app.use('/api/social/meta/callback', (_req, res, next) => {
   );
   next();
 });
+app.use(
+  '/uploads',
+  express.static(uploadsRoot, {
+    maxAge: '30d',
+    index: false,
+    dotfiles: 'deny',
+    setHeaders: (res, filePath) => {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      if (/\.(html?|svg|xml|js|mjs)$/i.test(filePath)) res.setHeader('Content-Disposition', 'attachment');
+    }
+  })
+);
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -50,7 +64,6 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', env: env.NODE_ENV });
 });
 
-// Welcome message for API root
 app.get('/api', (_req, res) => {
   res.json({
     message: 'Welcome to RABS API',
@@ -72,12 +85,14 @@ app.get('/api', (_req, res) => {
       b2b: '/api/b2b',
       integrations: '/api/integrations',
       pm: '/api/pm',
-      fulfillment: '/api/fulfillment'
+      fulfillment: '/api/fulfillment',
+      rabs: '/api/rabs'
     }
   });
 });
 
 const apiRouter = express.Router();
+apiRouter.use(requirePageAccess);
 apiRouter.use('/iam', iamRouter);
 apiRouter.use('/catalog', catalogRouter);
 apiRouter.use('/inventory', inventoryRouter);
@@ -94,10 +109,24 @@ apiRouter.use('/pm', pmRouter);
 apiRouter.use('/fulfillment', fulfillmentRouter);
 apiRouter.use('/rabs', rabsRouter);
 
-// Local file storage fallback (used when S3 is not configured)
-app.use('/uploads', express.static(UPLOADS_ROOT, { maxAge: '30d', index: false, dotfiles: 'deny' }));
+registerApiRouters({
+  iam: iamRouter,
+  catalog: catalogRouter,
+  inventory: inventoryRouter,
+  orders: ordersRouter,
+  finance: financeRouter,
+  crm: crmRouter,
+  hr: hrRouter,
+  marketing: marketingRouter,
+  social: socialRouter,
+  analytics: analyticsRouter,
+  b2b: b2bRouter,
+  integrations: integrationsRouter,
+  pm: pmRouter,
+  fulfillment: fulfillmentRouter,
+  rabs: rabsRouter
+});
 
-// Register base API router
 app.use('/api', apiRouter);
 
 app.use((_req, _res, next) => {
@@ -115,5 +144,3 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 export default app;
-
-

@@ -4,32 +4,54 @@ import { BankTransaction } from '@entities/finance/BankTransaction.js';
 import { z } from 'zod';
 import { BankAccount } from '@entities/finance/BankAccount.js';
 import { JournalEntry } from '@entities/finance/JournalEntry.js';
+import { zodMessage } from '@services/finance/zodMessage.js';
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const toDateOnly = (v: unknown) => {
+  if (v === '' || v === null) return null;
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) return v.slice(0, 10);
+  return v;
+};
+const requiredDate = (label: string) =>
+  z.preprocess(
+    (v) => toDateOnly(v) ?? undefined,
+    z.string({ required_error: `${label} is required` }).regex(DATE_RE, `${label} must be a valid date (YYYY-MM-DD)`)
+  );
+const optionalDate = (label: string) =>
+  z.preprocess(toDateOnly, z.string().regex(DATE_RE, `${label} must be a valid date (YYYY-MM-DD)`).nullable().optional());
+const optionalNumber = z.preprocess((v) => (v === '' || v === null ? undefined : v), z.coerce.number().optional());
+const txnType = z.enum(['debit', 'credit', 'fee', 'interest', 'other'], {
+  errorMap: () => ({ message: 'Transaction type must be debit, credit, fee, interest or other' })
+});
 
 const createBankTransactionSchema = z.object({
-  bankAccountId: z.string(),
-  transactionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  postDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  transactionType: z.enum(['debit', 'credit', 'fee', 'interest', 'other']),
-  amount: z.coerce.number(),
-  currency: z.string().length(3).optional(),
+  bankAccountId: z.coerce.string({ required_error: 'Bank account is required' }).min(1, 'Bank account is required'),
+  transactionDate: requiredDate('Transaction date'),
+  postDate: optionalDate('Post date'),
+  transactionType: txnType,
+  amount: z.coerce.number({ invalid_type_error: 'Amount must be a number' }).refine((n) => n !== 0, 'Amount must not be 0'),
+  currency: z.string().length(3, 'Currency must be a 3-letter code (e.g. GBP)').optional(),
   description: z.string().optional(),
   reference: z.string().optional(),
   payeePayer: z.string().optional(),
-  balance: z.coerce.number().optional(),
+  balance: optionalNumber,
   isReconciled: z.coerce.boolean().optional(),
   journalEntryId: z.string().optional()
 });
 
 const updateBankTransactionSchema = z.object({
-  transactionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  postDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  transactionType: z.enum(['debit', 'credit', 'fee', 'interest', 'other']).optional(),
-  amount: z.coerce.number().optional(),
-  currency: z.string().length(3).optional(),
+  transactionDate: requiredDate('Transaction date').optional(),
+  postDate: optionalDate('Post date'),
+  transactionType: txnType.optional(),
+  amount: z.coerce
+    .number({ invalid_type_error: 'Amount must be a number' })
+    .refine((n) => n !== 0, 'Amount must not be 0')
+    .optional(),
+  currency: z.string().length(3, 'Currency must be a 3-letter code (e.g. GBP)').optional(),
   description: z.string().optional(),
   reference: z.string().optional(),
   payeePayer: z.string().optional(),
-  balance: z.coerce.number().optional(),
+  balance: optionalNumber,
   isReconciled: z.coerce.boolean().optional(),
   journalEntryId: z.string().optional()
 });
@@ -108,7 +130,7 @@ export class BankTransactionsController {
     try {
       const parsed = createBankTransactionSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 
@@ -165,7 +187,7 @@ export class BankTransactionsController {
       const parsed = updateBankTransactionSchema.safeParse(req.body);
       
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 

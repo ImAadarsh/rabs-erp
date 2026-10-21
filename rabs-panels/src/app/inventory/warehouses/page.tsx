@@ -3,13 +3,98 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
-import { listWarehouses, createWarehouse, updateWarehouse, deleteWarehouse, listLocations } from '@/lib/api';
+import {
+  listWarehouses, createWarehouse, updateWarehouse, deleteWarehouse, listLocations,
+  listWarehouseTypes, createWarehouseType, updateWarehouseType, deleteWarehouseType, type WarehouseType
+} from '@/lib/api';
 import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
-import { Pencil, Trash2, Plus, X } from 'lucide-react';
+import { Pencil, Trash2, Plus, X, Tags } from 'lucide-react';
+import { LocationStatusBadge } from '@/components/inventory/location-status-badge';
+
+const NEW_TYPE = '__new__';
+
+/** Type select fed by the organisation's warehouse types, with an inline "Add new type" option. */
+function WarehouseTypeSelect({
+  value,
+  types,
+  organizationId,
+  canAddType,
+  onChange,
+  onTypeCreated
+}: {
+  value: string;
+  types: WarehouseType[];
+  organizationId?: string;
+  canAddType: boolean;
+  onChange: (code: string) => void;
+  onTypeCreated: (t: WarehouseType) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const options = types.filter(t => t.isActive || t.code === value);
+  const known = types.some(t => t.code === value);
+
+  async function save() {
+    if (!name.trim()) return;
+    try {
+      setSaving(true);
+      const res = await createWarehouseType({ organizationId, name: name.trim() });
+      onTypeCreated(res.data);
+      onChange(res.data.code);
+      setAdding(false);
+      setName('');
+      toast.success(`Type "${res.data.name}" added`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error?.message || 'Failed to add type');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (adding) {
+    return (
+      <div className="flex gap-2">
+        <input
+          autoFocus
+          type="text"
+          placeholder="New type name, e.g. Cold Store"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void save(); } }}
+          className="input"
+        />
+        <button type="button" onClick={save} disabled={saving || !name.trim()} className="px-3 py-2 bg-brand text-white rounded hover:bg-brand-600 text-sm disabled:opacity-50">
+          Add
+        </button>
+        <button type="button" onClick={() => { setAdding(false); setName(''); }} className="px-3 py-2 bg-muted rounded hover:bg-muted/80 text-sm">
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <select
+      value={value}
+      onChange={e => (e.target.value === NEW_TYPE ? setAdding(true) : onChange(e.target.value))}
+      className="select"
+      required
+    >
+      {!value && <option value="">Select...</option>}
+      {value && !known && <option value={value}>{value}</option>}
+      {options.map(t => (
+        <option key={t.code} value={t.code}>{t.name}{t.isActive ? '' : ' (inactive)'}</option>
+      ))}
+      {canAddType && <option value={NEW_TYPE}>+ Add new type…</option>}
+    </select>
+  );
+}
 
 type Warehouse = {
   id: string;
@@ -25,6 +110,13 @@ export default function WarehousesPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER']);
+  const { can } = useApiAccess();
+  const canCreate = can('POST', '/api/inventory/warehouses');
+  const canUpdate = can('PATCH', '/api/inventory/warehouses/:id');
+  const canDelete = can('DELETE', '/api/inventory/warehouses/:id');
+  const canCreateType = can('POST', '/api/inventory/warehouse-types');
+  const canUpdateType = can('PATCH', '/api/inventory/warehouse-types/:id');
+  const canDeleteType = can('DELETE', '/api/inventory/warehouse-types/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<Warehouse[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
@@ -33,7 +125,7 @@ export default function WarehousesPage() {
     locationId: '',
     code: '',
     name: '',
-    type: 'main_hub' as 'main_hub' | 'distribution_center' | 'store' | 'third_party' | 'other',
+    type: 'main_hub',
     addressLine1: '',
     addressLine2: '',
     city: '',
@@ -46,6 +138,10 @@ export default function WarehousesPage() {
   });
   const [editing, setEditing] = useState<Warehouse | null>(null);
   const [confirmDel, setConfirmDel] = useState<Warehouse | null>(null);
+  const [types, setTypes] = useState<WarehouseType[]>([]);
+  const [showTypes, setShowTypes] = useState(false);
+  const orgId = session?.user?.organizationId;
+  const typeName = useMemo(() => new Map(types.map(t => [t.code, t.name])), [types]);
 
   useEffect(() => {
     if (!hydrated || !hasAccess) return;
@@ -55,12 +151,14 @@ export default function WarehousesPage() {
     }
     (async () => {
       try {
-        const [warehousesRes, locationsRes] = await Promise.all([
+        const [warehousesRes, locationsRes, typesRes] = await Promise.all([
           listWarehouses(),
-          listLocations(undefined, session?.user?.organizationId)
+          listLocations(undefined, session?.user?.organizationId),
+          listWarehouseTypes({ organizationId: session?.user?.organizationId }).catch(() => ({ data: [] as WarehouseType[] }))
         ]);
         setItems(warehousesRes.data || []);
         setLocations(locationsRes.data || []);
+        setTypes(typesRes.data || []);
       } catch (e: any) {
         toast.error('Failed to load warehouses');
       } finally {
@@ -146,21 +244,35 @@ export default function WarehousesPage() {
   const columns = useMemo<ColumnDef<Warehouse>[]>(() => [
     { accessorKey: 'code', header: 'Code' },
     { accessorKey: 'name', header: 'Name' },
-    { accessorKey: 'type', header: 'Type' },
-    { accessorKey: 'status', header: 'Status' },
+    {
+      accessorKey: 'type',
+      header: 'Type',
+      cell: ({ row }) => <span className="text-sm">{typeName.get(row.original.type) ?? row.original.type}</span>
+    },
+    {
+      accessorKey: 'status',
+      header: 'Status',
+      cell: ({ row }) => (
+        <LocationStatusBadge
+          status={row.original.status}
+          title={row.original.status !== 'active' ? 'Not selectable for new operations; its bins are shown as unavailable' : undefined}
+        />
+      )
+    },
     { accessorKey: 'location.name', header: 'Location' },
     {
       id: 'actions',
       header: 'Actions',
       cell: ({ row }) => (
         <div className="flex gap-2">
+          {canUpdate && (
           <button onClick={() => {
             setEditing(row.original);
             setForm({
               locationId: row.original.location?.id || '',
               code: row.original.code,
               name: row.original.name,
-              type: row.original.type as any,
+              type: row.original.type,
               addressLine1: row.original.addressLine1 || '',
               addressLine2: row.original.addressLine2 || '',
               city: row.original.city || '',
@@ -174,13 +286,16 @@ export default function WarehousesPage() {
           }} className="p-1 hover:bg-muted rounded">
             <Pencil className="h-4 w-4" />
           </button>
+          )}
+          {canDelete && (
           <button onClick={() => setConfirmDel(row.original)} className="p-1 hover:bg-muted rounded text-red-500">
             <Trash2 className="h-4 w-4" />
           </button>
+          )}
         </div>
       )
     }
-  ], []);
+  ], [typeName, canUpdate, canDelete]);
 
   if (!hydrated || loading) {
     return (
@@ -229,13 +344,24 @@ export default function WarehousesPage() {
                 <h1 className="text-3xl font-bold">Warehouses</h1>
                 <p className="text-muted-foreground mt-1">Manage warehouse locations</p>
               </div>
-              <button
-                onClick={() => setShowCreate(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-brand text-white rounded hover:bg-brand-600"
-              >
-                <Plus className="h-4 w-4" />
-                Add Warehouse
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowTypes(true)}
+                  className="flex items-center gap-2 px-4 py-2 border border-border rounded hover:bg-muted"
+                >
+                  <Tags className="h-4 w-4" />
+                  Warehouse Types
+                </button>
+                {canCreate && (
+                <button
+                  onClick={() => setShowCreate(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-brand text-white rounded hover:bg-brand-600"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Warehouse
+                </button>
+                )}
+              </div>
             </div>
 
             <RichDataTable columns={columns} data={items} />
@@ -287,18 +413,14 @@ export default function WarehousesPage() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1.5">Type *</label>
-                        <select
+                        <WarehouseTypeSelect
                           value={form.type}
-                          onChange={e => setForm(prev => ({ ...prev, type: e.target.value as any }))}
-                          className="select"
-                          required
-                        >
-                          <option value="main_hub">Main Hub</option>
-                          <option value="distribution_center">Distribution Center</option>
-                          <option value="store">Store</option>
-                          <option value="third_party">Third Party</option>
-                          <option value="other">Other</option>
-                        </select>
+                          types={types}
+                          organizationId={orgId}
+                          canAddType={canCreateType}
+                          onChange={code => setForm(prev => ({ ...prev, type: code }))}
+                          onTypeCreated={t => setTypes(prev => [...prev, t])}
+                        />
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1.5">Country Code *</label>
@@ -370,18 +492,14 @@ export default function WarehousesPage() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1.5">Type *</label>
-                        <select
+                        <WarehouseTypeSelect
                           value={form.type}
-                          onChange={e => setForm(prev => ({ ...prev, type: e.target.value as any }))}
-                          className="select"
-                          required
-                        >
-                          <option value="main_hub">Main Hub</option>
-                          <option value="distribution_center">Distribution Center</option>
-                          <option value="store">Store</option>
-                          <option value="third_party">Third Party</option>
-                          <option value="other">Other</option>
-                        </select>
+                          types={types}
+                          organizationId={orgId}
+                          canAddType={canCreateType}
+                          onChange={code => setForm(prev => ({ ...prev, type: code }))}
+                          onTypeCreated={t => setTypes(prev => [...prev, t])}
+                        />
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1.5">Status</label>
@@ -394,6 +512,12 @@ export default function WarehousesPage() {
                           <option value="inactive">Inactive</option>
                           <option value="maintenance">Maintenance</option>
                         </select>
+                        {form.status !== 'active' && (
+                          <p className="mt-1 text-xs text-amber-700">
+                            Inactive / maintenance warehouses cannot be chosen for new bins, purchase orders, receiving,
+                            transfers, adjustments or counts. Existing records and stock stay visible.
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-2 pt-4">
@@ -405,6 +529,67 @@ export default function WarehousesPage() {
                       </button>
                     </div>
                   </form>
+                </div>
+              </div>
+            )}
+
+            {showTypes && (
+              <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="w-full max-w-lg rounded-2xl bg-card shadow-2xl border border-border p-6 max-h-[90vh] overflow-y-auto">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-lg font-semibold">Warehouse Types</h3>
+                    <button onClick={() => setShowTypes(false)} className="p-1 hover:bg-muted rounded-lg">
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Add new types from the Type field of the warehouse form (&quot;+ Add new type…&quot;). Inactive types are
+                    hidden from the form; types in use cannot be deleted.
+                  </p>
+                  <div className="divide-y divide-border rounded-lg border border-border">
+                    {types.map(t => (
+                      <div key={t.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium">{t.name}</div>
+                          <div className="text-xs text-muted-foreground font-mono">{t.code} · {t.inUse} warehouse{t.inUse === 1 ? '' : 's'}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {canUpdateType && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                const res = await updateWarehouseType(t.id, { isActive: !t.isActive });
+                                setTypes(prev => prev.map(x => x.id === t.id ? res.data : x));
+                              } catch (e: any) {
+                                toast.error(e?.response?.data?.error?.message || 'Failed to update type');
+                              }
+                            }}
+                            className="text-xs px-2 py-1 rounded border border-border hover:bg-muted"
+                          >
+                            {t.isActive ? 'Deactivate' : 'Activate'}
+                          </button>
+                          )}
+                          {canDeleteType && (
+                          <button
+                            disabled={t.inUse > 0}
+                            title={t.inUse > 0 ? 'In use by warehouses' : 'Delete'}
+                            onClick={async () => {
+                              try {
+                                await deleteWarehouseType(t.id);
+                                setTypes(prev => prev.filter(x => x.id !== t.id));
+                              } catch (e: any) {
+                                toast.error(e?.response?.data?.error?.message || 'Failed to delete type');
+                              }
+                            }}
+                            className="p-1 hover:bg-muted rounded text-red-500 disabled:opacity-30"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}

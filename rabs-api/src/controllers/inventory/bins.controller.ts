@@ -4,6 +4,7 @@ import { Bin } from '@entities/inventory/Bin.js';
 import { z } from 'zod';
 import { Warehouse } from '@entities/inventory/Warehouse.js';
 import { IsNull } from 'typeorm';
+import { inactiveWarehouseError } from '@services/inventory/locationStatus.js';
 
 const createBinSchema = z.object({
   warehouseId: z.string(),
@@ -111,6 +112,11 @@ export class BinsController {
         res.status(400).json({ error: { message: 'Invalid warehouseId' } });
         return;
       }
+      const warehouseError = inactiveWarehouseError(warehouse);
+      if (warehouseError) {
+        res.status(400).json({ error: { message: warehouseError } });
+        return;
+      }
 
       const repo = AppDataSource.getRepository(Bin);
       const existing = await repo.findOne({
@@ -169,6 +175,14 @@ export class BinsController {
       if (!item) {
         res.status(404).json({ error: { message: 'Bin not found' } });
         return;
+      }
+
+      if (parsed.data.status === 'active' && item.status !== 'active') {
+        const warehouseError = inactiveWarehouseError(item.warehouse, 'Warehouse of this bin');
+        if (warehouseError) {
+          res.status(400).json({ error: { message: `${warehouseError} Activate the warehouse before activating its bins.` } });
+          return;
+        }
       }
 
       if (parsed.data.code && parsed.data.code !== item.code) {

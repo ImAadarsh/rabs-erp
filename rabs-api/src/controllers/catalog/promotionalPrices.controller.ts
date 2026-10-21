@@ -4,6 +4,7 @@ import { PromotionalPrice } from '@entities/catalog/PromotionalPrice.js';
 import { Variant } from '@entities/catalog/Variant.js';
 import { PriceList } from '@entities/catalog/PriceList.js';
 import { z } from 'zod';
+import { zodMessage } from '@services/catalog/zodMessage.js';
 
 const createPromotionalPriceSchema = z.object({
   variantId: z.string(),
@@ -25,6 +26,25 @@ const updatePromotionalPriceSchema = z.object({
   validUntil: z.string().datetime().optional(),
   status: z.enum(['scheduled', 'active', 'expired', 'cancelled']).optional()
 });
+
+/** Cross-field rules shared by create and update; returns an error message or null. */
+function promotionRuleError(p: {
+  discountType: 'percentage' | 'fixed_amount';
+  discountValue: number;
+  validFrom: Date;
+  validUntil: Date;
+}): string | null {
+  if (!Number.isFinite(Number(p.discountValue)) || Number(p.discountValue) < 0) {
+    return 'Discount value cannot be negative';
+  }
+  if (p.discountType === 'percentage' && Number(p.discountValue) > 100) {
+    return 'Percentage discount must be between 0 and 100';
+  }
+  if (p.validUntil.getTime() <= p.validFrom.getTime()) {
+    return 'End date must be after the start date';
+  }
+  return null;
+}
 
 export class PromotionalPricesController {
   static async list(req: Request, res: Response): Promise<void> {
@@ -70,7 +90,18 @@ export class PromotionalPricesController {
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createPromotionalPriceSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
+      return;
+    }
+
+    const ruleError = promotionRuleError({
+      discountType: parsed.data.discountType,
+      discountValue: parsed.data.discountValue,
+      validFrom: new Date(parsed.data.validFrom),
+      validUntil: new Date(parsed.data.validUntil)
+    });
+    if (ruleError) {
+      res.status(400).json({ error: { message: ruleError } });
       return;
     }
 
@@ -120,7 +151,7 @@ export class PromotionalPricesController {
     const parsed = updatePromotionalPriceSchema.safeParse(req.body);
     
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
@@ -153,6 +184,24 @@ export class PromotionalPricesController {
     if (parsed.data.validFrom) price.validFrom = new Date(parsed.data.validFrom);
     if (parsed.data.validUntil) price.validUntil = new Date(parsed.data.validUntil);
     if (parsed.data.status) price.status = parsed.data.status;
+
+    const touchesRules =
+      parsed.data.discountType !== undefined ||
+      parsed.data.discountValue !== undefined ||
+      parsed.data.validFrom !== undefined ||
+      parsed.data.validUntil !== undefined;
+    const ruleError = touchesRules
+      ? promotionRuleError({
+          discountType: price.discountType,
+          discountValue: Number(price.discountValue),
+          validFrom: new Date(price.validFrom),
+          validUntil: new Date(price.validUntil)
+        })
+      : null;
+    if (ruleError) {
+      res.status(400).json({ error: { message: ruleError } });
+      return;
+    }
 
     await repo.save(price);
 

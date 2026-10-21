@@ -4,6 +4,7 @@ import { ComplianceDocument } from '@entities/catalog/ComplianceDocument.js';
 import { CatalogItem } from '@entities/catalog/CatalogItem.js';
 import { z } from 'zod';
 import { uploadFile, deleteFileByUrl } from '@utils/storage.js';
+import { zodMessage } from '@services/catalog/zodMessage.js';
 
 const createComplianceDocumentSchema = z.object({
   catalogItemId: z.string(),
@@ -69,7 +70,7 @@ export class ComplianceDocumentsController {
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createComplianceDocumentSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
@@ -139,7 +140,7 @@ export class ComplianceDocumentsController {
     const parsed = updateComplianceDocumentSchema.safeParse(req.body);
     
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 

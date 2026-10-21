@@ -12,6 +12,8 @@ import { Organization } from '@entities/iam/Organization.js';
 import { assertOrgAccess, orgIdFromReq, userIdFromReq } from '@services/crm/crmScope.js';
 import { attachTag, detachTag, listTagsForEntities } from '@services/crm/tags.service.js';
 import { syncFromCrmLead } from '@services/marketing/marketingLeads.service.js';
+import { buildSegmentPayload, serializeSegment } from '@services/marketing/segment.service.js';
+import { Segment } from '@entities/marketing/Segment.js';
 import {
   applyLeadAutomation,
   assertAssignableUser,
@@ -348,6 +350,124 @@ export class LeadsController {
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         res.status(400).json({ error: { message: 'Invalid payload', details: error.issues } });
+        return;
+      }
+      res.status(error.status || 500).json({ error: { message: error.message } });
+    }
+  }
+
+  /** GET /api/crm/leads/marketing-segments — static segments leads can be synced into */
+  static async listMarketingSegments(req: Request, res: Response): Promise<void> {
+    try {
+      const orgId = orgIdFromReq(req);
+      if (!orgId) {
+        res.status(400).json({ error: { message: 'organizationId required' } });
+        return;
+      }
+      const rows = await AppDataSource.getRepository(Segment).find({
+        where: { organizationId: orgId, segmentType: 'static', isActive: true },
+        order: { segmentName: 'ASC' }
+      });
+      res.json({ data: rows.map(serializeSegment) });
+    } catch (error: any) {
+      res.status(error.status || 500).json({ error: { message: error.message } });
+    }
+  }
+
+  /** POST /api/crm/leads/bulk-sync-to-marketing — add selected leads to an existing or new static segment */
+  static async bulkSyncToMarketing(req: Request, res: Response): Promise<void> {
+    try {
+      const schema = z
+        .object({
+          leadIds: z.array(z.string()).min(1).max(500),
+          segmentId: z.string().optional().nullable(),
+          newSegmentName: z.string().trim().max(255).optional().nullable()
+        })
+        .refine((d) => !!d.segmentId || !!d.newSegmentName, {
+          message: 'Choose a segment or enter a new segment name',
+          path: ['segmentId']
+        });
+      const data = schema.parse(req.body);
+      const orgId = orgIdFromReq(req);
+      if (!orgId) {
+        res.status(400).json({ error: { message: 'organizationId required' } });
+        return;
+      }
+
+      const segRepo = AppDataSource.getRepository(Segment);
+      let segment: Segment | null;
+      if (data.segmentId) {
+        segment = await segRepo.findOne({ where: { id: data.segmentId, organizationId: orgId } });
+        if (!segment) {
+          res.status(404).json({ error: { message: 'Marketing segment not found' } });
+          return;
+        }
+        if (segment.segmentType !== 'static') {
+          res.status(400).json({
+            error: { message: 'Leads can only be added to static segments (dynamic segments are rule-based)' }
+          });
+          return;
+        }
+      } else {
+        const payload = buildSegmentPayload({
+          segmentName: data.newSegmentName!,
+          description: 'Created from CRM leads bulk sync',
+          segmentType: 'static'
+        });
+        segment = await segRepo.save(
+          segRepo.create({
+            organizationId: orgId,
+            segmentName: payload.segmentName!,
+            segmentCode: payload.segmentCode!,
+            description: payload.description,
+            segmentType: 'static',
+            customerCount: 0,
+            isActive: true,
+            createdById: userIdFromReq(req) ?? null
+          })
+        );
+      }
+
+      const leads = await AppDataSource.getRepository(CrmLead)
+        .createQueryBuilder('l')
+        .where('l.id IN (:...ids)', { ids: data.leadIds })
+        .andWhere('l.organization_id = :orgId', { orgId })
+        .getMany();
+
+      let added = 0;
+      let alreadyMember = 0;
+      let skippedNoEmail = 0;
+      const failed: { leadId: string; message: string }[] = [];
+      for (const lead of leads) {
+        try {
+          const r = await syncFromCrmLead(lead, segment);
+          if (r.skipped) skippedNoEmail += 1;
+          else if (r.added) added += 1;
+          else alreadyMember += 1;
+        } catch (err: any) {
+          failed.push({ leadId: String(lead.id), message: err.message || 'sync failed' });
+        }
+      }
+
+      const fresh = await segRepo.findOne({ where: { id: segment.id } });
+      res.json({
+        data: {
+          segment: serializeSegment(fresh || segment),
+          added,
+          alreadyMember,
+          skippedNoEmail,
+          failed
+        },
+        meta: { requested: data.leadIds.length, found: leads.length }
+      });
+    } catch (error: any) {
+      if (error instanceof z.ZodError) {
+        res.status(400).json({
+          error: {
+            message: error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; '),
+            details: error.issues
+          }
+        });
         return;
       }
       res.status(error.status || 500).json({ error: { message: error.message } });

@@ -9,6 +9,7 @@ import { testWooCommerceConnection } from '@services/import/woocommerceApiImport
 import { fetchShopifyProducts } from '@services/import/shopifyApiImport.js';
 import { testWordPressConnection, type WordPressApiCredentials } from '@services/import/wordpressApiImport.js';
 import { testGoodTillConnection, type GoodTillCredentials } from '@services/import/goodtillApiClient.js';
+import { zodMessage } from '@services/catalog/zodMessage.js';
 
 const wooConnectionSchema = z.object({
   organizationId: z.string(),
@@ -105,7 +106,7 @@ export class ChannelConnectionsController {
   static async createWooCommerce(req: Request, res: Response): Promise<void> {
     const parsed = wooConnectionSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
@@ -157,7 +158,7 @@ export class ChannelConnectionsController {
   static async createShopify(req: Request, res: Response): Promise<void> {
     const parsed = shopifyConnectionSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 

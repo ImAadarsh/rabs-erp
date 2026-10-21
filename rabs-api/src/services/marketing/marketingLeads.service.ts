@@ -49,7 +49,7 @@ export async function ensureCrmLeadsSegment(organizationId: string): Promise<Seg
 /**
  * Find or create an ERP customer for the lead email, then add to CRM Leads segment.
  */
-export async function syncFromCrmLead(lead: CrmLead): Promise<{
+export async function syncFromCrmLead(lead: CrmLead, targetSegment?: Segment): Promise<{
   segmentId: string;
   customerId: string | null;
   added: boolean;
@@ -65,7 +65,7 @@ export async function syncFromCrmLead(lead: CrmLead): Promise<{
   }
 
   const email = lead.email.trim().toLowerCase();
-  const segment = await ensureCrmLeadsSegment(lead.organizationId);
+  const segment = targetSegment ?? (await ensureCrmLeadsSegment(lead.organizationId));
   const customerRepo = AppDataSource.getRepository(Customer);
 
   let customer = await customerRepo.findOne({

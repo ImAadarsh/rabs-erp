@@ -29,6 +29,108 @@ type ApiKey = {
   [key: string]: any;
 };
 
+const DEFAULT_SCOPES = [
+  'read:users',
+  'write:users',
+  'read:orders',
+  'write:orders',
+  'read:inventory',
+  'write:inventory',
+  'read:products',
+  'write:products',
+  'read:finance',
+  'write:finance',
+  'read:crm',
+  'write:crm',
+  'read:hr',
+  'write:hr',
+  'read:marketing',
+  'write:marketing',
+  'read:analytics',
+  'read:b2b',
+  'write:b2b',
+  'read:fulfillment',
+  'write:fulfillment',
+  'read:pos',
+  'admin:all'
+];
+
+function ScopesInput({
+  value,
+  onChange,
+  knownScopes,
+}: {
+  value: string[];
+  onChange: (scopes: string[]) => void;
+  knownScopes: string[];
+}) {
+  const [draft, setDraft] = useState('');
+  const options = Array.from(new Set([...knownScopes, ...value]));
+
+  function toggle(scope: string) {
+    onChange(value.includes(scope) ? value.filter((s) => s !== scope) : [...value, scope]);
+  }
+
+  function addDraft() {
+    const parts = draft.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+    if (parts.length === 0) return;
+    onChange(Array.from(new Set([...value, ...parts])));
+    setDraft('');
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="space-y-2 max-h-48 overflow-y-auto border border-border rounded-lg p-3 bg-muted/30">
+        {options.map((scope) => (
+          <label key={scope} className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={value.includes(scope)}
+              onChange={() => toggle(scope)}
+              className="w-4 h-4 text-primary rounded border-border focus:ring-primary"
+            />
+            <span className="text-sm text-foreground">{scope}</span>
+          </label>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ',') {
+              e.preventDefault();
+              addDraft();
+            }
+          }}
+          placeholder="Add custom scope, e.g. read:crm"
+          className="flex-1 px-3 py-2 border border-border rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+        />
+        <button
+          type="button"
+          onClick={addDraft}
+          className="px-3 py-2 border border-border rounded-lg hover:bg-muted transition-colors text-sm flex items-center gap-1"
+        >
+          <Plus size={14} /> Add
+        </button>
+      </div>
+      {value.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {value.map((scope) => (
+            <span key={scope} className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded">
+              {scope}
+              <button type="button" onClick={() => toggle(scope)} className="hover:text-destructive" aria-label={`Remove ${scope}`}>
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type GeneratedKey = {
   id: string;
   name: string;
@@ -238,6 +340,18 @@ export default function ApiKeysPage() {
       }
     },
     {
+      accessorKey: 'lastUsedAt',
+      header: 'Last used',
+      cell: ({ row }) => {
+        const used = row.original.lastUsedAt;
+        return (
+          <span className="text-sm text-muted-foreground">
+            {used ? new Date(used).toLocaleString('en-GB') : 'Never'}
+          </span>
+        );
+      }
+    },
+    {
       id: 'actions',
       header: '',
       cell: ({ row }) => (
@@ -268,6 +382,12 @@ export default function ApiKeysPage() {
               <h1 className="text-2xl font-bold text-foreground">API Keys</h1>
               <p className="text-sm text-muted-foreground mt-1">
                 Manage API keys for programmatic access to your platform
+              </p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-3xl">
+                Send the key as <code className="font-mono">Authorization: Bearer zk_…</code> or <code className="font-mono">X-Api-Key: zk_…</code>.
+                Scopes are <code className="font-mono">read:&lt;module&gt;</code> / <code className="font-mono">write:&lt;module&gt;</code> (write includes read;
+                modules: orders, inventory, products, finance, crm, hr, marketing, analytics, b2b, fulfillment, pos, users) or <code className="font-mono">admin:all</code>.
+                A key acts for the organisation it belongs to; requests outside its scopes get 403.
               </p>
             </div>
             <button

@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
 import { Pencil, Trash2, Plus, X, FileText, Download } from 'lucide-react';
 
@@ -36,6 +37,8 @@ export default function ComplianceDocumentsPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER']);
+  const { can } = useApiAccess();
+  const canDelete = can('DELETE', '/api/catalog/compliance-documents/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<ComplianceDocument[]>([]);
   const [catalogItems, setCatalogItems] = useState<any[]>([]);
@@ -275,18 +278,20 @@ export default function ComplianceDocumentsPage() {
             >
               <Pencil className="h-4 w-4" />
             </button>
-            <button
-              onClick={() => setConfirmDel(item)}
-              className="p-1 hover:bg-gray-100 rounded text-red-600"
-              title="Delete"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            {canDelete && (
+              <button
+                onClick={() => setConfirmDel(item)}
+                className="p-1 hover:bg-gray-100 rounded text-red-600"
+                title="Delete"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
           </div>
         );
       },
     },
-  ], []);
+  ], [canDelete]);
 
   if (!hydrated || loading) {
     return (

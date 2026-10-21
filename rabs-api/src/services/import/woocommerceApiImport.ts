@@ -1,5 +1,6 @@
 import type { ParsedProduct, ParsedVariant, ParsedMedia } from './types.js';
 import { slugPart, parseNum, parseIntQty } from './parserUtils.js';
+import { wooApiError } from './wooApiError.js';
 
 export interface WooCommerceApiCredentials {
   storeUrl: string;
@@ -61,7 +62,7 @@ async function wcFetch<T>(
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`WooCommerce API error (${res.status}): ${text.slice(0, 200)}`);
+    throw wooApiError('WooCommerce API error', res.status, text, 200);
   }
   return res.json() as Promise<T>;
 }
@@ -98,7 +99,7 @@ export async function testWooCommerceConnection(
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`WooCommerce API error (${res.status}): ${text.slice(0, 200)}`);
+    throw wooApiError('WooCommerce API error', res.status, text, 200);
   }
   const total = res.headers.get('x-wp-total');
   const productCount = total ? parseInt(total, 10) : (await res.json() as unknown[]).length;

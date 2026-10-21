@@ -16,7 +16,8 @@ import {
   createPaymentIntent,
   createPortalOrder,
   getPortalOrder,
-  listPortalOrders
+  listPortalOrders,
+  PORTAL_ORDER_STATUSES
 } from '@services/b2b/b2bOrders.service.js';
 import {
   changeRetailerPassword,
@@ -73,6 +74,24 @@ const createOrderSchema = z.object({
   affiliateSessionId: z.string().optional(),
   affiliateClickId: z.string().optional()
 });
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
+const listOrdersQuerySchema = z
+  .object({
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).default(10),
+    sort: z.enum(['date', 'total', 'status']).default('date'),
+    dir: z.enum(['asc', 'desc']).default('desc'),
+    search: z.string().trim().max(100).optional().transform((v) => v || undefined),
+    status: z.enum(PORTAL_ORDER_STATUSES).optional(),
+    dateFrom: isoDate.optional(),
+    dateTo: isoDate.optional(),
+    branchId: z.string().regex(/^\d+$/).optional()
+  })
+  .refine((q) => !q.dateFrom || !q.dateTo || q.dateFrom <= q.dateTo, {
+    message: 'dateFrom must be on or before dateTo',
+    path: ['dateFrom']
+  });
 
 export class B2bPortalController {
   static async me(req: Request, res: Response): Promise<void> {
@@ -183,11 +202,16 @@ export class B2bPortalController {
 
   static async orders(req: Request, res: Response): Promise<void> {
     try {
+      const parsed = listOrdersQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        res.status(400).json({ error: { message: 'Invalid query', details: parsed.error.issues } });
+        return;
+      }
       const { customerId } = auth(req);
-      const orders = await listPortalOrders(customerId);
-      res.json({ data: orders });
+      const result = await listPortalOrders(customerId, parsed.data);
+      res.json(result);
     } catch (error: any) {
-      res.status(500).json({ error: { message: error.message } });
+      res.status(error.status || 500).json({ error: { message: error.message } });
     }
   }
 
@@ -238,7 +262,9 @@ export class B2bPortalController {
       });
       res.status(201).json({ data: mapOrderToPortal(order as any) });
     } catch (error: any) {
-      res.status(error.status || 500).json({ error: { message: error.message } });
+      res.status(error.status || 500).json({
+        error: { message: error.message, ...(error.code ? { code: error.code } : {}), ...(error.shortages ? { shortages: error.shortages } : {}) }
+      });
     }
   }
 

@@ -9,6 +9,7 @@ import { GRNController } from '@controllers/inventory/grn.controller.js';
 import { StockTransfersController } from '@controllers/inventory/stockTransfers.controller.js';
 import { StockAdjustmentsController } from '@controllers/inventory/stockAdjustments.controller.js';
 import { CycleCountsController } from '@controllers/inventory/cycleCounts.controller.js';
+import { WarehouseTypesController } from '@controllers/inventory/warehouseTypes.controller.js';
 import { authMiddleware } from '@middlewares/auth.js';
 import { auditMiddleware } from '@middlewares/audit.js';
 import { requireRoles } from '@middlewares/rbac.js';
@@ -22,11 +23,17 @@ inventoryRouter.use(authMiddleware);
 inventoryRouter.use(auditMiddleware);
 
 // Warehouses
-inventoryRouter.get('/warehouses', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER'), WarehousesController.list);
-inventoryRouter.get('/warehouses/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER'), WarehousesController.get);
+inventoryRouter.get('/warehouses', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'PURCHASING', 'SALES_REP'), WarehousesController.list);
+inventoryRouter.get('/warehouses/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'PURCHASING'), WarehousesController.get);
 inventoryRouter.post('/warehouses', requireRoles('ADMIN', 'SUPER_ADMIN'), WarehousesController.create);
 inventoryRouter.patch('/warehouses/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), WarehousesController.update);
 inventoryRouter.delete('/warehouses/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), WarehousesController.remove);
+
+// Warehouse types (per organisation)
+inventoryRouter.get('/warehouse-types', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER'), WarehouseTypesController.list);
+inventoryRouter.post('/warehouse-types', requireRoles('ADMIN', 'SUPER_ADMIN'), WarehouseTypesController.create);
+inventoryRouter.patch('/warehouse-types/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), WarehouseTypesController.update);
+inventoryRouter.delete('/warehouse-types/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), WarehouseTypesController.remove);
 
 // Bins
 inventoryRouter.get('/bins', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER'), BinsController.list);
@@ -45,8 +52,8 @@ inventoryRouter.delete('/suppliers/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), S
 // Purchase Orders
 inventoryRouter.get('/purchase-orders', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'PURCHASING'), PurchaseOrdersController.list);
 inventoryRouter.get('/purchase-orders/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'PURCHASING'), PurchaseOrdersController.get);
-inventoryRouter.post('/purchase-orders', requireRoles('ADMIN', 'SUPER_ADMIN'), PurchaseOrdersController.create);
-inventoryRouter.patch('/purchase-orders/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), PurchaseOrdersController.update);
+inventoryRouter.post('/purchase-orders', requireRoles('ADMIN', 'SUPER_ADMIN', 'PURCHASING'), PurchaseOrdersController.create);
+inventoryRouter.patch('/purchase-orders/:id', requireRoles('ADMIN', 'SUPER_ADMIN', 'PURCHASING'), PurchaseOrdersController.update);
 inventoryRouter.delete('/purchase-orders/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), PurchaseOrdersController.remove);
 
 // Stock Items

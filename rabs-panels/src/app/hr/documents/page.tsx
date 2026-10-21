@@ -7,6 +7,7 @@ import { Header } from '@/components/header';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import {
   listHrDocuments, createHrDocument, deleteHrDocument,
   listEmployees, uploadRtwDocument, createRtwDocument,
@@ -30,6 +31,8 @@ export default function DocumentsPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'HR_MANAGER', 'HR_ADMIN']);
+  const { can } = useApiAccess();
+  const canDelete = can('DELETE', '/api/hr/documents/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
@@ -192,13 +195,13 @@ export default function DocumentsPage() {
     {
       id: 'del',
       header: '',
-      cell: ({ row }) => (
+      cell: ({ row }) => canDelete ? (
         <button type="button" onClick={() => onDelete(row.original.id)} className="p-1.5 text-red-600 hover:bg-red-500/10 rounded-lg">
           <Trash2 size={14} />
         </button>
-      ),
+      ) : null,
     },
-  ], []);
+  ], [canDelete]);
 
   return (
     <div className="min-h-screen app-surface">

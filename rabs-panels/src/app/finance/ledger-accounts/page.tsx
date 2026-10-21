@@ -5,9 +5,11 @@ import { Sidebar } from '@/components/sidebar';
 import { Header } from '@/components/header';
 import { listLedgerAccounts, createLedgerAccount, updateLedgerAccount, deleteLedgerAccount, listChartOfAccounts } from '@/lib/api';
 import { toast } from 'sonner';
+import { listLedgerAccountTypes, DEFAULT_LEDGER_ACCOUNT_TYPES, type LedgerAccountTypeOption } from '@/lib/accounting-api';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
 import { Pencil, Trash2, Plus, X } from 'lucide-react';
 
@@ -16,17 +18,63 @@ type LedgerAccount = {
   accountCode: string;
   accountName: string;
   accountType: 'asset' | 'liability' | 'equity' | 'revenue' | 'expense' | 'cost_of_goods_sold';
+  accountSubtype?: string | null;
   normalBalance: 'debit' | 'credit';
+  description?: string | null;
   isSystem: boolean;
   isActive: boolean;
   chartOfAccounts?: { id: string; name: string };
   parentAccount?: { id: string; accountCode: string; accountName: string } | null;
 };
 
+const humanizeSubtype = (v: string) => v.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
+
+function subtypeOptionsFor(types: LedgerAccountTypeOption[], accountType: string) {
+  const t = types.find((x) => x.value === accountType);
+  return t?.subtypeOptions ?? (t?.subtypes ?? []).map((value) => ({ value, label: humanizeSubtype(value) }));
+}
+
+function SubtypeSelect({
+  types,
+  accountType,
+  value,
+  onChange
+}: {
+  types: LedgerAccountTypeOption[];
+  accountType: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const options = subtypeOptionsFor(types, accountType);
+  // Keep a saved value that is not in the standard list selectable instead of silently dropping it.
+  const withCurrent = value && !options.some((o) => o.value === value)
+    ? [...options, { value, label: humanizeSubtype(value) }]
+    : options;
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full px-3 py-2 border border-border rounded-lg bg-background"
+    >
+      <option value="">None</option>
+      {withCurrent.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
+/** Drop a subtype that does not belong to the newly chosen account type. */
+function subtypeForType(types: LedgerAccountTypeOption[], accountType: string, current: string) {
+  return subtypeOptionsFor(types, accountType).some((o) => o.value === current) ? current : '';
+}
+
 export default function LedgerAccountsPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'FINANCE']);
+  const { can } = useApiAccess();
+  const canDelete = can('DELETE', '/api/finance/ledger-accounts/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<LedgerAccount[]>([]);
   const [chartOfAccounts, setChartOfAccounts] = useState<any[]>([]);
@@ -55,6 +103,7 @@ export default function LedgerAccountsPage() {
     isActive: true
   });
   const [confirmDel, setConfirmDel] = useState<LedgerAccount | null>(null);
+  const [accountTypes, setAccountTypes] = useState<LedgerAccountTypeOption[]>(DEFAULT_LEDGER_ACCOUNT_TYPES);
 
   useEffect(() => {
     if (!hydrated || !hasAccess) return;
@@ -62,6 +111,7 @@ export default function LedgerAccountsPage() {
       router.replace('/login');
       return;
     }
+    listLedgerAccountTypes(session?.user?.organizationId).then(setAccountTypes);
     (async () => {
       try {
         const [accountsRes, coaRes] = await Promise.all([
@@ -156,6 +206,16 @@ export default function LedgerAccountsPage() {
       header: 'Type',
       cell: ({ row }) => row.original.accountType.replace(/_/g, ' ').toUpperCase()
     },
+    {
+      id: 'accountSubtype',
+      header: 'Subtype',
+      accessorFn: (r) => r.accountSubtype ?? '',
+      cell: ({ row }) => {
+        const v = row.original.accountSubtype;
+        if (!v) return <span className="text-muted-foreground">—</span>;
+        return subtypeOptionsFor(accountTypes, row.original.accountType).find((o) => o.value === v)?.label ?? humanizeSubtype(v);
+      }
+    },
     { 
       accessorKey: 'normalBalance', 
       header: 'Normal Balance',
@@ -177,15 +237,15 @@ export default function LedgerAccountsPage() {
               accountCode: row.original.accountCode,
               accountName: row.original.accountName,
               accountType: row.original.accountType,
-              accountSubtype: '',
+              accountSubtype: row.original.accountSubtype || '',
               normalBalance: row.original.normalBalance,
-              description: '',
+              description: row.original.description || '',
               isActive: row.original.isActive
             });
           }} className="p-1.5 hover:bg-muted rounded">
             <Pencil size={16} />
           </button>
-          {!row.original.isSystem && (
+          {canDelete && !row.original.isSystem && (
             <button onClick={() => setConfirmDel(row.original)} className="p-1.5 hover:bg-muted rounded text-destructive">
               <Trash2 size={16} />
             </button>
@@ -193,7 +253,7 @@ export default function LedgerAccountsPage() {
         </div>
       )
     }
-  ], []);
+  ], [accountTypes, canDelete]);
 
   if (!hydrated || loading) {
     return (
@@ -319,16 +379,13 @@ export default function LedgerAccountsPage() {
                         <label className="block text-sm font-medium mb-1">Account Type *</label>
                         <select
                           value={form.accountType}
-                          onChange={(e) => setForm({ ...form, accountType: e.target.value as any })}
+                          onChange={(e) => setForm({ ...form, accountType: e.target.value as any, accountSubtype: subtypeForType(accountTypes, e.target.value, form.accountSubtype), normalBalance: accountTypes.find((t) => t.value === e.target.value)?.normalBalance ?? form.normalBalance })}
                           className="w-full px-3 py-2 border border-border rounded-lg bg-background"
                           required
                         >
-                          <option value="asset">Asset</option>
-                          <option value="liability">Liability</option>
-                          <option value="equity">Equity</option>
-                          <option value="revenue">Revenue</option>
-                          <option value="expense">Expense</option>
-                          <option value="cost_of_goods_sold">Cost of Goods Sold</option>
+                          {accountTypes.map((t) => (
+                            <option key={t.value} value={t.value}>{t.label}</option>
+                          ))}
                         </select>
                       </div>
                       <div>
@@ -346,11 +403,11 @@ export default function LedgerAccountsPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Account Subtype</label>
-                      <input
-                        type="text"
+                      <SubtypeSelect
+                        types={accountTypes}
+                        accountType={form.accountType}
                         value={form.accountSubtype}
-                        onChange={(e) => setForm({ ...form, accountSubtype: e.target.value })}
-                        className="w-full px-3 py-2 border border-border rounded-lg bg-background"
+                        onChange={(v) => setForm({ ...form, accountSubtype: v })}
                       />
                     </div>
                     <div>
@@ -435,16 +492,13 @@ export default function LedgerAccountsPage() {
                         <label className="block text-sm font-medium mb-1">Account Type *</label>
                         <select
                           value={editForm.accountType}
-                          onChange={(e) => setEditForm({ ...editForm, accountType: e.target.value as any })}
+                          onChange={(e) => setEditForm({ ...editForm, accountType: e.target.value as any, accountSubtype: subtypeForType(accountTypes, e.target.value, editForm.accountSubtype), normalBalance: accountTypes.find((t) => t.value === e.target.value)?.normalBalance ?? editForm.normalBalance })}
                           className="w-full px-3 py-2 border border-border rounded-lg bg-background"
                           required
                         >
-                          <option value="asset">Asset</option>
-                          <option value="liability">Liability</option>
-                          <option value="equity">Equity</option>
-                          <option value="revenue">Revenue</option>
-                          <option value="expense">Expense</option>
-                          <option value="cost_of_goods_sold">Cost of Goods Sold</option>
+                          {accountTypes.map((t) => (
+                            <option key={t.value} value={t.value}>{t.label}</option>
+                          ))}
                         </select>
                       </div>
                       <div>
@@ -462,11 +516,11 @@ export default function LedgerAccountsPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Account Subtype</label>
-                      <input
-                        type="text"
+                      <SubtypeSelect
+                        types={accountTypes}
+                        accountType={editForm.accountType}
                         value={editForm.accountSubtype}
-                        onChange={(e) => setEditForm({ ...editForm, accountSubtype: e.target.value })}
-                        className="w-full px-3 py-2 border border-border rounded-lg bg-background"
+                        onChange={(v) => setEditForm({ ...editForm, accountSubtype: v })}
                       />
                     </div>
                     <div>

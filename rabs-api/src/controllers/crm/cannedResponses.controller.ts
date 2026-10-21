@@ -4,6 +4,7 @@ import { CannedResponse } from '@entities/crm/CannedResponse.js';
 import { Organization } from '@entities/iam/Organization.js';
 import { User } from '@entities/iam/User.js';
 import { z } from 'zod';
+import { orgIdFromReq } from '@services/crm/crmScope.js';
 
 const createCannedResponseSchema = z.object({
     organizationId: z.string(),
@@ -22,10 +23,18 @@ const updateCannedResponseSchema = z.object({
     isActive: z.boolean().optional()
 });
 
+function normalizeShortcut(s: string | null | undefined): string | null | undefined {
+    if (s === undefined || s === null) return s;
+    const v = s.trim().replace(/^\/+/, '').replace(/\s+/g, '-');
+    return v || null;
+}
+
 export class CannedResponsesController {
     static async list(req: Request, res: Response): Promise<void> {
         const repo = AppDataSource.getRepository(CannedResponse);
+        const orgId = orgIdFromReq(req);
         const items = await repo.find({
+            where: orgId ? { organization: { id: orgId } } : {},
             take: 200,
             relations: ['organization'],
             order: { title: 'ASC' }
@@ -49,7 +58,12 @@ export class CannedResponsesController {
     static async create(req: Request, res: Response): Promise<void> {
         const parsed = createCannedResponseSchema.safeParse(req.body);
         if (!parsed.success) {
-            res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+            res.status(400).json({
+                error: {
+                    message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+                    details: parsed.error.issues
+                }
+            });
             return;
         }
 
@@ -63,6 +77,7 @@ export class CannedResponsesController {
         const repo = AppDataSource.getRepository(CannedResponse);
         const item = repo.create({
             ...parsed.data,
+            shortcut: normalizeShortcut(parsed.data.shortcut) ?? null,
             organization: org,
             createdBy: (req as any).user // Assuming auth middleware attaches user
         });
@@ -74,7 +89,12 @@ export class CannedResponsesController {
     static async update(req: Request, res: Response): Promise<void> {
         const parsed = updateCannedResponseSchema.safeParse(req.body);
         if (!parsed.success) {
-            res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+            res.status(400).json({
+                error: {
+                    message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+                    details: parsed.error.issues
+                }
+            });
             return;
         }
 
@@ -85,7 +105,10 @@ export class CannedResponsesController {
             return;
         }
 
-        Object.assign(item, parsed.data);
+        Object.assign(item, {
+            ...parsed.data,
+            ...(parsed.data.shortcut !== undefined ? { shortcut: normalizeShortcut(parsed.data.shortcut) } : {})
+        });
         await repo.save(item);
         res.json({ data: item });
     }

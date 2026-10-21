@@ -9,6 +9,9 @@ import { FiscalPeriod } from '@entities/finance/FiscalPeriod.js';
 import { LedgerAccount } from '@entities/finance/LedgerAccount.js';
 import { CostCenter } from '@entities/finance/CostCenter.js';
 import { User } from '@entities/iam/User.js';
+import { zodMessage } from '@services/finance/zodMessage.js';
+import { createPostedJournal } from '@services/finance/journalPosting.service.js';
+import { appendAccAudit } from '@services/finance/accAudit.service.js';
 
 const journalLineSchema = z.object({
   ledgerAccountId: z.string(),
@@ -20,6 +23,31 @@ const journalLineSchema = z.object({
   currency: z.string().length(3).optional(),
   exchangeRate: z.coerce.number().positive().optional()
 });
+
+const journalLinesSchema = z
+  .array(journalLineSchema)
+  .min(2, 'At least 2 journal lines are required')
+  .superRefine((lines, ctx) => {
+    lines.forEach((l, i) => {
+      const d = Number(l.debitAmount) || 0;
+      const c = Number(l.creditAmount) || 0;
+      if (d > 0 && c > 0) {
+        ctx.addIssue({ code: 'custom', path: [i], message: `Line ${i + 1}: enter either a debit or a credit, not both` });
+      } else if (d === 0 && c === 0) {
+        ctx.addIssue({ code: 'custom', path: [i], message: `Line ${i + 1}: debit or credit must be greater than 0` });
+      }
+    });
+    const totalDebit = lines.reduce((s, l) => s + (Number(l.debitAmount) || 0), 0);
+    const totalCredit = lines.reduce((s, l) => s + (Number(l.creditAmount) || 0), 0);
+    if (totalDebit <= 0 || totalCredit <= 0) {
+      ctx.addIssue({ code: 'custom', message: 'Total debits and total credits must be greater than 0' });
+    } else if (Math.abs(totalDebit - totalCredit) > 0.005) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Journal entry must balance: debits ${totalDebit.toFixed(2)} ≠ credits ${totalCredit.toFixed(2)}`
+      });
+    }
+  });
 
 const createJournalEntrySchema = z.object({
   organizationId: z.string(),
@@ -33,7 +61,7 @@ const createJournalEntrySchema = z.object({
   description: z.string().optional(),
   reference: z.string().optional(),
   status: z.enum(['draft', 'posted', 'voided']).optional(),
-  journalLines: z.array(journalLineSchema).min(2)
+  journalLines: journalLinesSchema
 });
 
 const updateJournalEntrySchema = z.object({
@@ -47,8 +75,15 @@ const updateJournalEntrySchema = z.object({
   description: z.string().optional(),
   reference: z.string().optional(),
   status: z.enum(['draft', 'posted', 'voided']).optional(),
-  journalLines: z.array(journalLineSchema).min(2).optional()
+  journalLines: journalLinesSchema.optional()
 });
+
+const reverseJournalEntrySchema = z.object({
+  entryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Reversal date must be a valid date').optional()
+});
+
+/** journal_number is varchar(100); keep the suffix intact so lookups stay deterministic. */
+const reversalNumberFor = (journalNumber: string) => `${journalNumber.slice(0, 96)}-REV`;
 
 export class JournalEntriesController {
   static async list(req: Request, res: Response): Promise<void> {
@@ -120,8 +155,19 @@ export class JournalEntriesController {
         res.status(404).json({ error: { message: 'Journal Entry not found' } });
         return;
       }
-      
-      res.json({ data: item });
+
+      const reversedBy = await repo.findOne({
+        where: { journalNumber: reversalNumberFor(item.journalNumber) },
+        select: { id: true, journalNumber: true, entryDate: true }
+      });
+      const reversalOf = item.entryType === 'reversing' && item.journalNumber.endsWith('-REV')
+        ? await repo.findOne({
+            where: { journalNumber: item.journalNumber.slice(0, -4) },
+            select: { id: true, journalNumber: true, entryDate: true }
+          })
+        : null;
+
+      res.json({ data: { ...item, reversedBy: reversedBy ?? null, reversalOf: reversalOf ?? null } });
     } catch (error: any) {
       res.status(500).json({ error: { message: error.message } });
     }
@@ -131,7 +177,7 @@ export class JournalEntriesController {
     try {
       const parsed = createJournalEntrySchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 
@@ -275,7 +321,7 @@ export class JournalEntriesController {
       const parsed = updateJournalEntrySchema.safeParse(req.body);
       
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
 
@@ -413,6 +459,86 @@ export class JournalEntriesController {
       res.json({ data: updated });
     } catch (error: any) {
       res.status(500).json({ error: { message: error.message } });
+    }
+  }
+
+  /** Posts a mirror journal (debits ↔ credits) for a posted entry. One reversal per entry. */
+  static async reverse(req: Request, res: Response): Promise<void> {
+    try {
+      const parsed = reverseJournalEntrySchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
+        return;
+      }
+      const repo = AppDataSource.getRepository(JournalEntry);
+      const original = await repo.findOne({
+        where: { id: req.params.id },
+        relations: ['organization', 'journalLines', 'journalLines.ledgerAccount', 'journalLines.costCenter']
+      });
+      if (!original) {
+        res.status(404).json({ error: { message: 'Journal Entry not found' } });
+        return;
+      }
+      if (original.status !== 'posted') {
+        res.status(400).json({ error: { message: 'Only posted journal entries can be reversed' } });
+        return;
+      }
+      const reversalNumber = reversalNumberFor(original.journalNumber);
+      if (await repo.findOne({ where: { journalNumber: reversalNumber }, select: { id: true } })) {
+        res.status(400).json({ error: { message: `This entry has already been reversed (${reversalNumber})` } });
+        return;
+      }
+
+      const lines = [...(original.journalLines || [])]
+        .filter((l) => Number(l.debitAmount) > 0 || Number(l.creditAmount) > 0)
+        .sort((a, b) => a.lineNumber - b.lineNumber);
+      const auth = (req as any).auth as { sub: string; orgId: string; roles: string[] };
+      const entryDate = parsed.data.entryDate ?? new Date().toISOString().slice(0, 10);
+
+      const reversal = await AppDataSource.transaction(async (em) => {
+        const created = await createPostedJournal(
+          {
+            organizationId: original.organization.id,
+            entryDate,
+            journalNumber: reversalNumber,
+            entryType: 'reversing',
+            sourceType: original.sourceType,
+            sourceId: original.sourceId,
+            description: `Reversal of ${original.journalNumber}${original.description ? ` — ${original.description}` : ''}`.slice(0, 2000),
+            reference: `Reversal of ${original.journalNumber}`.slice(0, 255),
+            lines: lines.map((l) => ({
+              ledgerAccountId: l.ledgerAccount.id,
+              description: l.description,
+              debitAmount: Number(l.creditAmount),
+              creditAmount: Number(l.debitAmount)
+            })),
+            postedByUserId: auth?.sub ?? null
+          },
+          em
+        );
+        const jlRepo = em.getRepository(JournalLine);
+        const createdLines = [...(created.journalLines || [])].sort((a, b) => a.lineNumber - b.lineNumber);
+        for (let i = 0; i < createdLines.length; i++) {
+          if (lines[i]?.costCenter) {
+            createdLines[i].costCenter = lines[i].costCenter;
+            await jlRepo.save(createdLines[i]);
+          }
+        }
+        return created;
+      });
+
+      await appendAccAudit({
+        organizationId: original.organization.id,
+        entityType: 'journal_entry',
+        entityId: reversal.id,
+        action: 'create',
+        actorUserId: auth?.sub ?? null,
+        payload: { reversalOf: original.id, journalNumber: original.journalNumber }
+      });
+
+      res.status(201).json({ data: reversal });
+    } catch (error: any) {
+      res.status(400).json({ error: { message: error.message } });
     }
   }
 

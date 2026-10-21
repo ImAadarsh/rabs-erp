@@ -9,7 +9,7 @@ import { FilterBar, type FilterField } from '@/components/filter-bar';
 import { useSession } from '@/hooks/use-session';
 import {
   listPmWorkOrders, createPmWorkOrder, updatePmWorkOrder,
-  listPmProjects, listPmStages, listUsers,
+  listPmProjects, listPmStages, listUserOptions,
 } from '@/lib/api';
 import { formatDateTime, pmApiError, statusBadgeClass, userLabel, WORK_ORDER_STATUSES } from '@/lib/pm-utils';
 import { toast } from 'sonner';
@@ -83,7 +83,7 @@ export default function PmWorkOrdersPage() {
     void Promise.all([
       listPmProjects({ organizationId: orgId, limit: 200 }),
       listPmStages({ organizationId: orgId }),
-      listUsers(),
+      listUserOptions(),
     ]).then(([p, s, u]) => {
       setProjects(p.data || []);
       setStages(s.data || []);

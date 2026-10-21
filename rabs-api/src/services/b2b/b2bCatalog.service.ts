@@ -33,6 +33,8 @@ export type PortalVariant = {
   size?: string;
   packSize: string;
   unitsPerCase: number;
+  /** What one ordered quantity is (case, display, pack, outer, box, set or unit); stockLevel uses the same unit. */
+  saleUnit: string;
   barcode: string;
   casePrice: number;
   unitPrice: number;
@@ -47,11 +49,31 @@ function num(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function parseUnitsPerCase(packSize: string | null | undefined): number {
-  if (!packSize) return 1;
+const CONTAINER_UOMS: Record<string, string> = {
+  CASE: 'case',
+  DISPLAY: 'display',
+  PACK: 'pack',
+  OUTER: 'outer',
+  BOX: 'box',
+  SET: 'set'
+};
+
+/**
+ * Stock, price and order quantity are all kept per catalog `uom`. For container uoms
+ * (CASE/DISPLAY/PACK/...) `pack_size` is the number of retail units inside one, e.g.
+ * uom DISPLAY + pack_size "12" = a display of 12. For PCS items pack_size is only the
+ * supplier carton size, so one ordered quantity is one unit.
+ */
+function saleUnitOf(item: { uom?: string | null; packSize?: string | null }): { saleUnit: string; unitsPerCase: number } {
+  const packSize = (item.packSize ?? '').trim();
+  const container = CONTAINER_UOMS[(item.uom ?? '').trim().toUpperCase()];
+  if (container) {
+    const lead = packSize.replace(/,/g, '').match(/^(\d+)/);
+    return { saleUnit: container, unitsPerCase: lead ? Math.max(1, parseInt(lead[1], 10)) : 1 };
+  }
   const match = packSize.match(/(\d+)\s*[x×]/i);
-  if (match) return Math.max(1, parseInt(match[1], 10));
-  return 1;
+  if (match) return { saleUnit: 'case', unitsPerCase: Math.max(1, parseInt(match[1], 10)) };
+  return { saleUnit: 'unit', unitsPerCase: 1 };
 }
 
 function slugify(value: string): string {
@@ -199,7 +221,7 @@ function mapItem(
     const priceRows = prices.get(v.id) ?? [];
     const baseRow = priceRows[0];
     const casePrice = num(baseRow?.price, num(item.sellingPrice));
-    const unitsPerCase = parseUnitsPerCase(item.packSize);
+    const { saleUnit, unitsPerCase } = saleUnitOf(item);
     const vatRate = num(item.taxCode?.rate, 0.2);
     const optionName = (v.option1Name ?? '').toLowerCase();
     const flavor = optionName.includes('flavor') || optionName.includes('flavour') ? v.option1Value ?? undefined : undefined;
@@ -214,11 +236,12 @@ function mapItem(
       size,
       packSize: item.packSize || '1',
       unitsPerCase,
+      saleUnit,
       barcode,
       casePrice,
       unitPrice: unitsPerCase > 0 ? Number((casePrice / unitsPerCase).toFixed(4)) : casePrice,
-      rrp: num(baseRow?.compareAtPrice, casePrice),
-      stockLevel: stock.get(v.id) ?? 0,
+      rrp: unitsPerCase > 1 ? num(baseRow?.compareAtPrice, 0) / unitsPerCase : num(baseRow?.compareAtPrice, casePrice),
+      stockLevel: Math.max(0, Math.floor(stock.get(v.id) ?? 0)),
       weightKg: num(v.weightValue, num(item.weightValue)),
       vatRate
     };
@@ -386,11 +409,14 @@ export function mapOrderToPortal(order: {
     on_hold: 'Pending'
   };
   const notes = `${order.customerNotes ?? ''}\n${order.internalNotes ?? ''}`;
+  const staffMethod = /Payment method: ([^\n|]+)/.exec(order.internalNotes ?? '')?.[1]?.trim();
   const paymentMethod = notes.includes('Trade Credit')
     ? 'Trade Credit (Wallet)'
-    : notes.includes('Credit Card') || notes.includes('card')
+    : notes.includes('Worldpay') || notes.includes('Credit Card') || /\bcard\b/i.test(notes)
       ? 'Credit Card'
-      : 'Bank Transfer (Open Banking)';
+      : /bank transfer/i.test(notes)
+        ? 'Bank Transfer'
+        : staffMethod || 'Not set';
   const lines = order.lines ?? [];
   return {
     id: order.id,
@@ -399,7 +425,7 @@ export function mapOrderToPortal(order: {
     status: statusMap[order.status] ?? 'Processing',
     paymentMethod,
     gatewayUsed: undefined as string | undefined,
-    deliveryMethod: order.shippingMethod || 'Next Working Day Pallet Freight',
+    deliveryMethod: order.shippingMethod || (staffMethod ? 'Arranged by sales rep' : 'Not set'),
     items: lines.map((l) => ({
       sku: l.sku,
       name: l.name,

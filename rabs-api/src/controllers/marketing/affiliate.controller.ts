@@ -6,6 +6,7 @@ import {
   createAffiliateLink,
   createPayout,
   ensureDefaultLink,
+  getPayoutDetail,
   listAffiliateLinks,
   listClicks,
   listConversions,
@@ -190,6 +191,16 @@ export class AffiliateController {
         affiliateId: affiliateId && affiliateId !== 'payouts' ? affiliateId : undefined
       });
       res.json({ data });
+    } catch (error: any) {
+      res.status(error.status || 500).json({ error: { message: error.message } });
+    }
+  }
+
+  static async getPayout(req: Request, res: Response) {
+    try {
+      const orgId = orgIdFromReq(req);
+      if (!orgId) return res.status(400).json({ error: { message: 'organizationId required' } });
+      res.json({ data: await getPayoutDetail({ payoutId: req.params.payoutId, organizationId: orgId }) });
     } catch (error: any) {
       res.status(error.status || 500).json({ error: { message: error.message } });
     }

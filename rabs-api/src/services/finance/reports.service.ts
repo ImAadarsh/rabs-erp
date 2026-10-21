@@ -24,11 +24,13 @@ async function glBalances(period: Period) {
            COALESCE(SUM(jl.credit_amount),0) AS credit
     FROM ledger_accounts la
     INNER JOIN chart_of_accounts coa ON coa.id = la.chart_of_accounts_id
-    LEFT JOIN journal_lines jl ON jl.ledger_account_id = la.id
-    LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
-      AND je.status = 'posted'
-      AND je.entry_date BETWEEN ? AND ?
-      AND je.organization_id = ?
+    LEFT JOIN (
+      journal_lines jl
+      INNER JOIN journal_entries je ON je.id = jl.journal_entry_id
+        AND je.status = 'posted'
+        AND je.entry_date BETWEEN ? AND ?
+        AND je.organization_id = ?
+    ) ON jl.ledger_account_id = la.id
     WHERE coa.organization_id = ?
       AND la.is_active = 1
     GROUP BY la.id, la.account_code, la.account_name, la.account_type
@@ -265,9 +267,12 @@ export async function draftVatReturn(period: Period) {
     [period.organizationId, period.from, period.to]
   );
 
-  const purchaseRows: Array<{ net: string; tax: string }> = await AppDataSource.query(
+  // Reverse-charge VAT is not owed to the supplier (total = net + non-RC VAT), so
+  // subtotal + tax_amount - total is the self-accounted VAT that also goes in box 1.
+  const purchaseRows: Array<{ net: string; tax: string; rc: string }> = await AppDataSource.query(
     `
-    SELECT COALESCE(SUM(subtotal),0) AS net, COALESCE(SUM(tax_amount),0) AS tax
+    SELECT COALESCE(SUM(subtotal),0) AS net, COALESCE(SUM(tax_amount),0) AS tax,
+           COALESCE(SUM(GREATEST(subtotal + tax_amount - total, 0)),0) AS rc
     FROM acc_supplier_bills
     WHERE organization_id = ?
       AND bill_date BETWEEN ? AND ?
@@ -277,10 +282,25 @@ export async function draftVatReturn(period: Period) {
     [period.organizationId, period.from, period.to]
   );
 
+  // Expense claims: amount is gross, tax_amount the recoverable VAT. Only approved
+  // (or reimbursed) claims have been journalled.
+  const expenseRows: Array<{ net: string; tax: string }> = await AppDataSource.query(
+    `
+    SELECT COALESCE(SUM(amount - COALESCE(tax_amount,0)),0) AS net, COALESCE(SUM(COALESCE(tax_amount,0)),0) AS tax
+    FROM acc_expenses
+    WHERE organization_id = ?
+      AND expense_date BETWEEN ? AND ?
+      AND status IN ('approved','reimbursed')
+      AND journal_entry_id IS NOT NULL
+    `,
+    [period.organizationId, period.from, period.to]
+  );
+
+  const reverseChargeVat = roundMoney(Number(purchaseRows[0]?.rc || 0));
   const box6 = roundMoney(Number(salesRows[0]?.net || 0));
-  const box1 = roundMoney(Number(salesRows[0]?.tax || 0));
-  const box7 = roundMoney(Number(purchaseRows[0]?.net || 0));
-  const box4 = roundMoney(Number(purchaseRows[0]?.tax || 0));
+  const box1 = roundMoney(Number(salesRows[0]?.tax || 0) + reverseChargeVat);
+  const box7 = roundMoney(Number(purchaseRows[0]?.net || 0) + Number(expenseRows[0]?.net || 0));
+  const box4 = roundMoney(Number(purchaseRows[0]?.tax || 0) + Number(expenseRows[0]?.tax || 0));
   const box2 = 0;
   const box3 = roundMoney(box1 + box2);
   const box5 = roundMoney(box3 - box4);
@@ -373,8 +393,21 @@ export async function dashboardAggregates(organizationId: string) {
   };
 }
 
-export async function saveVatReturnDraft(period: Period, returnNumber: string) {
+export type VatBoxOverrides = Partial<
+  Record<'box1' | 'box2' | 'box4' | 'box6' | 'box7' | 'box8' | 'box9', number>
+> & { vatScheme?: 'standard' | 'flat_rate' | 'cash_accounting' };
+
+export async function saveVatReturnDraft(period: Period, returnNumber: string, overrides?: VatBoxOverrides) {
   const draft = await draftVatReturn(period);
+  if (overrides) {
+    const { vatScheme, ...boxes } = overrides;
+    for (const [k, v] of Object.entries(boxes)) {
+      if (v !== undefined && Number.isFinite(v)) (draft.boxes as Record<string, number>)[k] = roundMoney(v);
+    }
+    draft.boxes.box3 = roundMoney(draft.boxes.box1 + draft.boxes.box2);
+    draft.boxes.box5 = roundMoney(draft.boxes.box3 - draft.boxes.box4);
+    if (vatScheme) draft.vatScheme = vatScheme;
+  }
   const repo = AppDataSource.getRepository(VatReturn);
   const org = { id: period.organizationId } as any;
   const entity = repo.create({

@@ -1,7 +1,7 @@
 import { AppDataSource } from '@config/data-source.js';
 import { SocialAccount } from '@entities/social/SocialAccount.js';
 import { SocialPost } from '@entities/social/SocialPost.js';
-import { MetaGraphError, metaGraphGet } from './metaGraph.client.js';
+import { MetaGraphError, describeMetaPermissionError, metaGraphGet } from './metaGraph.client.js';
 import { isOrganicMetaAccount, metaAccountKind, requireAccountToken } from './metaAccount.util.js';
 
 /** Metrics confirmed working on this app with pages_read_engagement (Graph v26). */
@@ -112,15 +112,21 @@ export async function fetchAccountInsights(opts: {
           });
         }
       } catch (err: any) {
-        if (!locked && (err?.code === 10 || String(err?.message || '').includes('instagram_manage_insights'))) {
+        const message = err?.permissionError
+          ? describeMetaPermissionError(['instagram_manage_insights'])
+          : err?.message;
+        if (
+          !locked &&
+          (err?.permissionError || err?.code === 10 || String(err?.rawMessage || err?.message || '').includes('instagram_manage_insights'))
+        ) {
           locked = {
             message:
-              err?.message ||
+              message ||
               'Instagram insights require instagram_manage_insights (Instagram API product + reconnect).',
             missingPermission: 'instagram_manage_insights'
           };
         }
-        series.push({ name: metric, period: 'day', points: [], error: err?.message });
+        series.push({ name: metric, period: 'day', points: [], error: message });
       }
     }
     result.series = series.filter((s) => s.points.length > 0);
@@ -186,7 +192,11 @@ export async function fetchAccountInsights(opts: {
     if (firstErr?.error && series.every((s) => !s.points.length)) {
       result.locked = result.locked || {
         message: firstErr.error,
-        missingPermission: firstErr.error.includes('read_insights') ? 'read_insights' : undefined
+        missingPermission: firstErr.error.includes('pages_read_engagement')
+          ? 'pages_read_engagement'
+          : firstErr.error.includes('read_insights')
+            ? 'read_insights'
+            : undefined
       };
     }
   }

@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { ColumnDef } from '@tanstack/react-table';
 import { Trash2, Plus, X, TrendingUp, TrendingDown, Search } from 'lucide-react';
 
@@ -30,6 +31,8 @@ export default function StockAdjustmentsPage() {
   const router = useRouter();
   const { session, hydrated } = useSession();
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN', 'WAREHOUSE_MANAGER']);
+  const { can } = useApiAccess();
+  const canDelete = can('DELETE', '/api/inventory/stock-adjustments/:id');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<StockAdjustment[]>([]);
   const [stockItems, setStockItems] = useState<any[]>([]);
@@ -129,11 +132,12 @@ export default function StockAdjustmentsPage() {
     setStockItemSearch('');
   }
 
-  const filteredStockItems = stockItems.filter(si => 
+  // Stock in inactive / maintenance warehouses cannot be adjusted.
+  const filteredStockItems = stockItems.filter(si => (si.warehouse?.status ?? 'active') === 'active' && (
     si.variant?.variantSku.toLowerCase().includes(stockItemSearch.toLowerCase()) ||
     si.variant?.catalogItem?.name.toLowerCase().includes(stockItemSearch.toLowerCase()) ||
     si.warehouse?.name.toLowerCase().includes(stockItemSearch.toLowerCase())
-  );
+  ));
 
   function selectStockItem(item: any) {
     setSelectedStockItem(item);
@@ -214,6 +218,7 @@ export default function StockAdjustmentsPage() {
       header: 'Actions',
       cell: ({ row }) => (
         <div className="flex gap-2">
+          {canDelete && (
           <button 
             onClick={() => setConfirmDel(row.original)} 
             className="p-1 hover:bg-muted rounded text-red-500"
@@ -221,10 +226,11 @@ export default function StockAdjustmentsPage() {
           >
             <Trash2 className="h-4 w-4" />
           </button>
+          )}
         </div>
       )
     }
-  ], []);
+  ], [canDelete]);
 
   if (!hydrated || loading) {
     return (

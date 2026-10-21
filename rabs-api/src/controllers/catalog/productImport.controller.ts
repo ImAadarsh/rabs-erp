@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { z } from 'zod';
+import { z, ZodError } from 'zod';
 import { AppDataSource } from '@config/data-source.js';
 import { ProductImportJob } from '@entities/catalog/ProductImportJob.js';
 import { Organization } from '@entities/iam/Organization.js';
@@ -11,7 +11,21 @@ import { fetchShopifyProducts } from '@services/import/shopifyApiImport.js';
 import { fetchWooCommerceProducts } from '@services/import/woocommerceApiImport.js';
 import { fetchAllWordPressProducts } from '@services/import/wordpressApiImport.js';
 import { ChannelConnectionsController } from '@controllers/catalog/channelConnections.controller.js';
+import { loadWordPressCredentials } from '@controllers/catalog/wordpressChannels.controller.js';
 import type { ImportChannel, ImportOptions, ImportSourceType } from '@services/import/types.js';
+import { zodMessage } from '@services/catalog/zodMessage.js';
+
+/** Multipart bodies send booleans as strings; z.coerce.boolean() would turn "false" into true. */
+const formBoolean = (fallback: boolean) =>
+  z.preprocess(
+    (v) => (typeof v === 'string' ? ['true', '1', 'on'].includes(v.toLowerCase()) : v),
+    z.boolean().default(fallback)
+  );
+
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ZodError) return zodMessage(err);
+  return err instanceof Error ? err.message : fallback;
+}
 
 const importOptionsSchema = z.object({
   organizationId: z.string(),
@@ -19,12 +33,12 @@ const importOptionsSchema = z.object({
   warehouseId: z.string().optional(),
   priceListId: z.string().optional(),
   duplicateMode: z.enum(['skip', 'update']).default('skip'),
-  importProducts: z.coerce.boolean().default(true),
-  importVariants: z.coerce.boolean().default(true),
-  importInventory: z.coerce.boolean().default(true),
-  importPrices: z.coerce.boolean().default(false),
-  importMedia: z.coerce.boolean().default(true),
-  importChannelMappings: z.coerce.boolean().default(true)
+  importProducts: formBoolean(true),
+  importVariants: formBoolean(true),
+  importInventory: formBoolean(true),
+  importPrices: formBoolean(false),
+  importMedia: formBoolean(true),
+  importChannelMappings: formBoolean(true)
 });
 
 const shopifyCredentialsSchema = z.object({
@@ -40,7 +54,7 @@ const wooCredentialsSchema = z.object({
 
 const wordpressCredentialsSchema = z.object({
   storeUrl: z.string().min(1),
-  authMode: z.enum(['appPassword', 'consumerKey']),
+  authMode: z.enum(['appPassword', 'consumerKey']).default('consumerKey'),
   username: z.string().optional(),
   appPassword: z.string().optional(),
   consumerKey: z.string().optional(),
@@ -127,6 +141,9 @@ async function resolveApiCredentials(
     }
     if (sourceType === 'shopify_api') {
       return ChannelConnectionsController.loadShopifyCredentials(connectionId, organizationId);
+    }
+    if (sourceType === 'wordpress_api') {
+      return loadWordPressCredentials(connectionId, organizationId);
     }
   }
   return body.credentials;
@@ -220,7 +237,7 @@ export class ProductImportController {
         }
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to fetch from API';
+      const message = errorMessage(err, 'Failed to fetch from API');
       res.status(400).json({ error: { message } });
     }
   }
@@ -295,7 +312,7 @@ export class ProductImportController {
       try {
         const parsed = importOptionsSchema.safeParse(JSON.parse(rawOptions));
         if (!parsed.success) {
-          return { ok: false as const, error: { message: 'Invalid options', details: parsed.error.issues } };
+          return { ok: false as const, error: { message: zodMessage(parsed.error), details: parsed.error.issues } };
         }
         return { ok: true as const, data: parsed.data };
       } catch {
@@ -304,16 +321,24 @@ export class ProductImportController {
     }
     const parsed = importOptionsSchema.safeParse(req.body);
     if (!parsed.success) {
-      return { ok: false as const, error: { message: 'Invalid options', details: parsed.error.issues } };
+      return { ok: false as const, error: { message: zodMessage(parsed.error), details: parsed.error.issues } };
     }
     return { ok: true as const, data: parsed.data };
   }
 
   private static async parseOptionsFromBody(body: Record<string, unknown>) {
     const raw = body?.options ?? body;
-    const parsed = importOptionsSchema.safeParse(typeof raw === 'string' ? JSON.parse(raw) : raw);
+    let candidate: unknown = raw;
+    if (typeof raw === 'string') {
+      try {
+        candidate = JSON.parse(raw);
+      } catch {
+        return { ok: false as const, error: { message: 'Invalid options JSON' } };
+      }
+    }
+    const parsed = importOptionsSchema.safeParse(candidate);
     if (!parsed.success) {
-      return { ok: false as const, error: { message: 'Invalid options', details: parsed.error.issues } };
+      return { ok: false as const, error: { message: zodMessage(parsed.error), details: parsed.error.issues } };
     }
     return { ok: true as const, data: parsed.data };
   }
@@ -355,15 +380,37 @@ export class ProductImportController {
 
     try {
       const products = await loadProducts();
-      const summary = await runProductImport(products, options, meta.channel);
+      if (products.length === 0) {
+        const message =
+          'No products found in the source — check that the file matches the selected source type and has product rows.';
+        job.status = 'failed';
+        job.errorMessage = message;
+        job.summary = { productCount: 0 };
+        await jobRepo.save(job);
+        res.status(400).json({ error: { message, jobId: job.id } });
+        return;
+      }
 
-      job.status = 'completed';
-      job.summary = { ...summary, productCount: products.length };
+      const summary = await runProductImport(products, options, meta.channel);
+      const changed =
+        summary.productsCreated + summary.productsUpdated + summary.variantsCreated + summary.variantsUpdated;
+      const warning =
+        changed === 0
+          ? `Nothing was imported: ${products.length} product(s) read, ${summary.productsSkipped} skipped` +
+            (summary.errors.length ? `, ${summary.errors.length} with errors (${summary.errors[0].message})` : '') +
+            '.'
+          : summary.errors.length
+            ? `${summary.errors.length} product(s) had errors (first: ${summary.errors[0].message})`
+            : null;
+
+      job.status = changed === 0 && summary.errors.length > 0 ? 'failed' : 'completed';
+      job.errorMessage = warning ? warning.slice(0, 1000) : null;
+      job.summary = { ...summary, productCount: products.length, ...(warning ? { warning } : {}) };
       await jobRepo.save(job);
 
-      res.json({ data: { jobId: job.id, status: job.status, summary } });
+      res.json({ data: { jobId: job.id, status: job.status, summary: { ...summary, productCount: products.length }, warning } });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Import failed';
+      const message = errorMessage(err, 'Import failed');
       job.status = 'failed';
       job.errorMessage = message;
       await jobRepo.save(job);

@@ -13,6 +13,7 @@ import { Barcode } from '@entities/catalog/Barcode.js';
 import { IsNull } from 'typeorm';
 import type { ImportOptions, ImportResultSummary, ParsedProduct, ImportChannel } from './types.js';
 import { toChannelMappingChannel } from './channelMappingChannel.js';
+import { inactiveWarehouseError } from '@services/inventory/locationStatus.js';
 
 const dbChannel = (channel: ImportChannel) => toChannelMappingChannel(channel);
 
@@ -60,6 +61,8 @@ export async function runProductImport(
     if (!warehouse || whOrgId !== org.id) {
       throw new Error('Invalid warehouseId for inventory import');
     }
+    const warehouseError = inactiveWarehouseError(warehouse);
+    if (warehouseError) throw new Error(warehouseError);
   }
 
   let priceList = null;

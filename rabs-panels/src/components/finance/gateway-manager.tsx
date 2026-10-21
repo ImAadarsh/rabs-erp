@@ -10,6 +10,7 @@ import {
   updateGateway
 } from '@/lib/api';
 import { toast } from 'sonner';
+import { useApiAccess } from '@/hooks/use-api-access';
 import { Plus, RefreshCw, PlugZap } from 'lucide-react';
 
 const PROVIDERS = [
@@ -49,6 +50,8 @@ export function GatewayManager({ organizationId, variant = 'full' }: GatewayMana
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...emptyForm });
   const [saving, setSaving] = useState(false);
+  const { can } = useApiAccess();
+  const canDelete = can('DELETE', '/api/finance/gateways/:id');
 
   const load = useCallback(async () => {
     if (!organizationId) return;
@@ -370,7 +373,7 @@ export function GatewayManager({ organizationId, variant = 'full' }: GatewayMana
                   <button className="text-xs px-2 py-1 rounded-lg border" onClick={() => openEdit(g)}>
                     Edit
                   </button>
-                  <button
+                  {canDelete && <button
                     className="text-xs px-2 py-1 rounded-lg border text-red-600"
                     onClick={async () => {
                       if (!confirm('Delete this gateway?')) return;
@@ -384,7 +387,7 @@ export function GatewayManager({ organizationId, variant = 'full' }: GatewayMana
                     }}
                   >
                     Delete
-                  </button>
+                  </button>}
                 </div>
               </div>
             ))}

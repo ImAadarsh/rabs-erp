@@ -9,7 +9,7 @@ import {
   FolderKanban, CheckSquare, Flag, ClipboardList, AlertCircle,
   Plus, Calendar, TrendingUp
 } from 'lucide-react';
-import { createPmProject, getPmDashboard, listCustomers, listPmMilestones, listPmTasks, listUsers } from '@/lib/api';
+import { createPmProject, getPmDashboard, listCustomers, listPmMilestones, listPmTasks, listUserOptions } from '@/lib/api';
 import { formatDate, pmApiError, PROJECT_STATUSES, statusBadgeClass, userLabel } from '@/lib/pm-utils';
 import { toast } from 'sonner';
 import Link from 'next/link';
@@ -109,7 +109,7 @@ export default function ProjectsDashboardPage() {
     if (oid) {
       void Promise.all([
         listCustomers({ organizationId: oid, limit: 200 }),
-        listUsers(),
+        listUserOptions(),
       ]).then(([cust, us]) => {
         setCustomers(cust.data || []);
         setUsers(us.data || []);

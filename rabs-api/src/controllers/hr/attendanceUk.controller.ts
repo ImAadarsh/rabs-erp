@@ -1,12 +1,13 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
+import { zodMessage } from '@services/finance/zodMessage.js';
 import { AppDataSource } from '@config/data-source.js';
 import { Employee } from '@entities/hr/Employee.js';
 import { HrAttendance } from '@entities/hr/HrAttendance.js';
 import { HrOvertime } from '@entities/hr/HrOvertime.js';
 import { HrSickEpisode } from '@entities/hr/HrSickEpisode.js';
 import { HrPension } from '@entities/hr/HrPension.js';
-import { userIdFromReq } from '@services/hr/hrScope.js';
+import { boolish, userIdFromReq } from '@services/hr/hrScope.js';
 import { getPayrollRates } from '@services/hr/payrollCalc.service.js';
 import { IsNull } from 'typeorm';
 
@@ -46,9 +47,9 @@ const sickSchema = z.object({
 });
 
 const pensionSchema = z.object({
-  employeeId: z.string(),
-  eligible: z.boolean().optional(),
-  enrolled: z.boolean().optional(),
+  employeeId: z.coerce.string(),
+  eligible: boolish.optional(),
+  enrolled: boolish.optional(),
   schemeName: z.string().max(255).optional().nullable(),
   contributionPct: z.coerce.number().optional().nullable(),
   employerContributionPct: z.coerce.number().optional().nullable(),
@@ -88,7 +89,7 @@ export class AttendanceController {
     try {
       const parsed = attendanceSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       if (!(await requireEmployee(parsed.data.employeeId))) {
@@ -167,7 +168,7 @@ export class OvertimeController {
     try {
       const parsed = overtimeSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       if (!(await requireEmployee(parsed.data.employeeId))) {
@@ -195,7 +196,7 @@ export class OvertimeController {
     try {
       const parsed = overtimeSchema.partial().omit({ employeeId: true }).safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const repo = AppDataSource.getRepository(HrOvertime);
@@ -264,7 +265,7 @@ export class SickEpisodesController {
     try {
       const parsed = sickSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       if (!(await requireEmployee(parsed.data.employeeId))) {
@@ -303,7 +304,7 @@ export class SickEpisodesController {
     try {
       const parsed = sickSchema.partial().omit({ employeeId: true }).safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       const repo = AppDataSource.getRepository(HrSickEpisode);
@@ -372,7 +373,7 @@ export class PensionController {
     try {
       const parsed = pensionSchema.safeParse(req.body);
       if (!parsed.success) {
-        res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+        res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
         return;
       }
       if (!(await requireEmployee(parsed.data.employeeId))) {
@@ -382,6 +383,7 @@ export class PensionController {
       const repo = AppDataSource.getRepository(HrPension);
       let item = await repo.findOne({ where: { employeeId: parsed.data.employeeId } });
       const d = parsed.data;
+      const wasEnrolled = Boolean(item?.enrolled);
       if (!item) {
         item = repo.create({
           employeeId: d.employeeId,
@@ -407,6 +409,15 @@ export class PensionController {
         if (d.enrolmentDate !== undefined) item.enrolmentDate = d.enrolmentDate;
         if (d.optOutDate !== undefined) item.optOutDate = d.optOutDate;
         if (d.notes !== undefined) item.notes = d.notes;
+      }
+      // Enrolling ends any postponement: stamp the enrolment date and drop the deferral.
+      if (item.enrolled && !wasEnrolled) {
+        if (!d.enrolmentDate) {
+          const now = new Date();
+          item.enrolmentDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        }
+        item.deferralDate = null;
+        if (d.optOutDate === undefined) item.optOutDate = null;
       }
       await repo.save(item);
       res.json({ data: item });

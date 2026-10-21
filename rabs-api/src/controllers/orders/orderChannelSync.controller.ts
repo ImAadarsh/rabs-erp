@@ -8,15 +8,14 @@ import { z } from 'zod';
 import { AppDataSource } from '@config/data-source.js';
 import { ChannelConnection } from '@entities/catalog/ChannelConnection.js';
 import { Organization } from '@entities/iam/Organization.js';
-import { decryptJson } from '@utils/credentialCrypto.js';
-import { fetchGoodTillOrders } from '@services/import/goodtillOrderImport.js';
-import { fetchWooOrders } from '@services/import/wooOrderImport.js';
+import {
+  fetchOrdersForConnection,
+  getSyncStatus,
+  loadConnection,
+  recordManualSync
+} from '@services/orders/channelOrderSync.service.js';
 import { runOrderImport } from '@services/import/orderImportService.js';
-import type { GoodTillCredentials } from '@services/import/goodtillApiClient.js';
-import type { WordPressApiCredentials } from '@services/import/wordpressApiImport.js';
 import type { ParsedExternalOrder } from '@services/import/externalOrderTypes.js';
-
-const DEFAULT_DAYS = 90;
 
 const syncSchema = z.object({
   organizationId: z.string().min(1),
@@ -24,6 +23,8 @@ const syncSchema = z.object({
   /** ISO dates; default to the trailing 90 days. */
   from: z.string().optional(),
   to: z.string().optional(),
+  /** WooCommerce: match from/to against the order's creation (default) or last-modified date. */
+  dateField: z.enum(['created', 'modified']).optional(),
   includeVoided: z.coerce.boolean().optional().default(false),
   statuses: z.array(z.string()).optional(),
   maxOrders: z.coerce.number().int().positive().max(5000).optional(),
@@ -31,76 +32,6 @@ const syncSchema = z.object({
   importPayments: z.coerce.boolean().optional().default(true),
   updateExisting: z.coerce.boolean().optional().default(true)
 });
-
-type SyncInput = z.infer<typeof syncSchema>;
-
-function resolveRange(input: { from?: string; to?: string }): { from: Date; to: Date } {
-  const to = input.to ? new Date(input.to) : new Date();
-  const from = input.from
-    ? new Date(input.from)
-    : new Date(to.getTime() - DEFAULT_DAYS * 24 * 60 * 60 * 1000);
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
-    throw new Error('Invalid from/to date');
-  }
-  return { from, to };
-}
-
-async function loadConnection(
-  connectionId: string,
-  organizationId: string
-): Promise<ChannelConnection> {
-  const conn = await AppDataSource.getRepository(ChannelConnection).findOne({
-    where: { id: connectionId, organization: { id: organizationId } },
-    relations: ['organization']
-  });
-  if (!conn) throw new Error('Channel connection not found for this organization');
-  if (conn.status !== 'active') throw new Error(`Connection "${conn.name}" is inactive`);
-  return conn;
-}
-
-/** Fetch and map orders from whichever channel the connection points at. */
-async function fetchOrdersForConnection(
-  conn: ChannelConnection,
-  input: SyncInput
-): Promise<ParsedExternalOrder[]> {
-  const { from, to } = resolveRange(input);
-
-  // Some legacy Good Till rows were saved with an empty channel value.
-  const isGoodTill =
-    conn.channel === 'goodtill' ||
-    (!conn.channel && (conn.storeUrl ?? '').includes('thegoodtill.com'));
-
-  if (isGoodTill) {
-    // `Omit<T, never>` gives the mapped type an implicit index signature,
-    // matching how the catalog controllers call decryptJson.
-    const creds = decryptJson<Omit<GoodTillCredentials, never>>(conn.credentialsEncrypted);
-    return fetchGoodTillOrders(creds, {
-      connectionId: conn.id,
-      from,
-      to,
-      includeVoided: input.includeVoided,
-      maxSales: input.maxOrders
-    });
-  }
-
-  if (conn.channel === 'wordpress' || conn.channel === 'woocommerce') {
-    const raw = decryptJson<Omit<WordPressApiCredentials, never>>(conn.credentialsEncrypted);
-    const creds: WordPressApiCredentials = {
-      ...raw,
-      storeUrl: raw.storeUrl ?? conn.storeUrl ?? ''
-    };
-    if (!creds.storeUrl) throw new Error('Connection has no store URL');
-    return fetchWooOrders(creds, {
-      connectionId: conn.id,
-      from,
-      to,
-      statuses: input.statuses,
-      maxOrders: input.maxOrders
-    });
-  }
-
-  throw new Error(`Order sync is not supported for channel "${conn.channel}"`);
-}
 
 function summarizeForPreview(orders: ParsedExternalOrder[]) {
   const totalValue = orders.reduce((sum, o) => sum + o.total, 0);
@@ -119,7 +50,7 @@ function summarizeForPreview(orders: ParsedExternalOrder[]) {
       acc[o.status] = (acc[o.status] ?? 0) + 1;
       return acc;
     }, {}),
-    orders: orders.slice(0, 50).map((o) => ({
+    orders: orders.slice(0, 2000).map((o) => ({
       externalId: o.externalId,
       externalNumber: o.externalNumber,
       orderNumber: o.orderNumber,
@@ -187,11 +118,22 @@ export class OrderChannelSyncController {
     res.json({ data: supported });
   }
 
+  /** GET /api/orders/channel-sync/status — cron flag and last-synced time per connection. */
+  static async status(req: Request, res: Response): Promise<void> {
+    try {
+      res.json({ data: await getSyncStatus(req.query.organizationId as string | undefined) });
+    } catch (err) {
+      res.status(500).json({ error: { message: err instanceof Error ? err.message : 'Failed to load sync status' } });
+    }
+  }
+
   /** POST /api/orders/channel-sync/preview — fetch and summarise without writing. */
   static async preview(req: Request, res: Response): Promise<void> {
     const parsed = syncSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({
+        error: { message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), details: parsed.error.issues }
+      });
       return;
     }
 
@@ -214,7 +156,9 @@ export class OrderChannelSyncController {
   static async import(req: Request, res: Response): Promise<void> {
     const parsed = syncSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({
+        error: { message: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), details: parsed.error.issues }
+      });
       return;
     }
 
@@ -237,6 +181,7 @@ export class OrderChannelSyncController {
         importPayments: parsed.data.importPayments,
         updateExisting: parsed.data.updateExisting
       });
+      await recordManualSync(conn.id).catch(() => undefined);
 
       res.json({
         data: {

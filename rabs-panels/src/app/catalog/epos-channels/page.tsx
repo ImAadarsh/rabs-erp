@@ -46,6 +46,7 @@ import {
 } from 'lucide-react';
 import { EposLabelDesigner, type LabelProduct } from '@/components/epos-label-designer';
 import { BarcodePreview } from '@/components/barcode-preview';
+import { activeWarehouses } from '@/components/inventory/location-status-badge';
 
 type EposConnection = {
   id: string;
@@ -1047,7 +1048,7 @@ export default function EposChannelsPage() {
                 Warehouse (stock)
                 <select className="mt-1 w-full rounded-md border px-3 py-2 text-sm" value={importOptions.warehouseId} onChange={(e) => setImportOptions({ ...importOptions, warehouseId: e.target.value })}>
                   <option value="">None</option>
-                  {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  {activeWarehouses(warehouses).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
                 </select>
               </label>
               <label className="block text-sm font-medium">

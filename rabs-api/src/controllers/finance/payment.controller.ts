@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { AppDataSource } from '@config/data-source.js';
 import { z } from 'zod';
 import { Payment } from '@entities/finance/Payment.js';
+import { syncPaymentLedger, voidLedgerForDeletedDocument } from '@services/finance/ledgerAutoPost.service.js';
 
 const createSchema = z.object({
     organizationId: z.string(),
@@ -126,6 +127,7 @@ export class PaymentController {
                 paymentDate: new Date(data.paymentDate)
             });
             const saved = await repo.save(item);
+            await syncPaymentLedger(String(saved.id), (req as any).user?.id ? String((req as any).user.id) : null);
             res.status(201).json({ data: saved });
         } catch (error: any) {
             if (error instanceof z.ZodError) {
@@ -148,6 +150,7 @@ export class PaymentController {
             }
 
             const saved = await repo.save(item);
+            await syncPaymentLedger(String(saved.id), (req as any).user?.id ? String((req as any).user.id) : null);
             res.json({ data: saved });
         } catch (error: any) {
             if (error instanceof z.ZodError) {
@@ -163,6 +166,7 @@ export class PaymentController {
             const item = await repo.findOne({ where: { id: req.params.id } });
             if (!item) return res.status(404).json({ error: { message: 'Not found' } });
 
+            await voidLedgerForDeletedDocument('payment', String(item.id));
             await repo.remove(item);
             res.json({ data: { id: item.id } });
         } catch (error: any) {

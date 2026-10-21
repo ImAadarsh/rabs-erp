@@ -11,6 +11,7 @@ import {
   decorateItemsWithSheetFields,
   syncProductSheetFields
 } from '@services/catalog/productSheetFields.js';
+import { zodMessage } from '@services/catalog/zodMessage.js';
 
 /** Inventory-sheet fields stored outside catalog_items. */
 const sheetFieldsSchema = {
@@ -147,7 +148,8 @@ export class CatalogItemsController {
       .leftJoinAndSelect('ci.businessUnit', 'bu')
       .leftJoinAndSelect('ci.taxCode', 'tc')
       .leftJoinAndSelect('ci.variants', 'v')
-      .orderBy('ci.createdAt', 'DESC');
+      .orderBy('ci.createdAt', 'DESC')
+      .addOrderBy('ci.id', 'DESC');
 
     if (organizationId) {
       queryBuilder.andWhere('ci.organization_id = :orgId', { orgId: organizationId });
@@ -220,7 +222,7 @@ export class CatalogItemsController {
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createCatalogItemSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
@@ -338,7 +340,7 @@ export class CatalogItemsController {
     const parsed = updateCatalogItemSchema.safeParse(req.body);
     
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 

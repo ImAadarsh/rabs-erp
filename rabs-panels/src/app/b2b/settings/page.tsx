@@ -111,7 +111,7 @@ export default function B2bSettingsPage() {
                   onChange={(e) => setForm({ ...form, defaultWarehouseId: e.target.value })}
                 >
                   <option value="">All warehouses</option>
-                  {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name} ({w.code})</option>)}
+                  {warehouses.filter((w) => w.status === 'active' || w.id === form.defaultWarehouseId).map((w) => <option key={w.id} value={w.id}>{w.name} ({w.code})</option>)}
                 </select>
               </div>
               <input className="w-full border border-border rounded-lg px-3 py-2 bg-background" placeholder="Assigned rep name" value={form.assignedRepName} onChange={(e) => setForm({ ...form, assignedRepName: e.target.value })} />

@@ -5,6 +5,7 @@ import { InvoiceLine } from '@entities/finance/InvoiceLine.js';
 import { Payment } from '@entities/finance/Payment.js';
 import { Order } from '@entities/orders/Order.js';
 import { Customer } from '@entities/orders/Customer.js';
+import { syncInvoiceLedger } from './ledgerAutoPost.service.js';
 
 /**
  * Channels that represent genuine trading activity. Demo/seed orders carry an
@@ -239,6 +240,10 @@ export async function generateInvoicesForOrders(
             created.push(await manager.getRepository(Invoice).save(invoice));
         }
     });
+
+    for (const invoice of created) {
+        await syncInvoiceLedger(String(invoice.id), createdBy ?? null);
+    }
 
     return { created, skipped };
 }

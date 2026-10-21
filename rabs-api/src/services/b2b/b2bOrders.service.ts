@@ -1,3 +1,4 @@
+import { In, type EntityManager } from 'typeorm';
 import { AppDataSource } from '@config/data-source.js';
 import { Customer } from '@entities/orders/Customer.js';
 import { CustomerAddress } from '@entities/orders/CustomerAddress.js';
@@ -7,6 +8,7 @@ import { OrderAddress } from '@entities/orders/OrderAddress.js';
 import { Variant } from '@entities/catalog/Variant.js';
 import { Payment } from '@entities/finance/Payment.js';
 import { PaymentGateway } from '@entities/finance/PaymentGateway.js';
+import { Invoice } from '@entities/finance/Invoice.js';
 import { Warehouse } from '@entities/inventory/Warehouse.js';
 import { B2bShipment } from '@entities/b2b/B2bShipment.js';
 import { B2bShipmentEvent } from '@entities/b2b/B2bShipmentEvent.js';
@@ -51,10 +53,46 @@ async function pickGateway(
   return gateways.find((g) => g.isDefault) || gateways[0] || null;
 }
 
+function plural(unit: string, qty: number): string {
+  if (qty === 1) return unit;
+  return /(s|x|ch|sh)$/.test(unit) ? `${unit}es` : `${unit}s`;
+}
+
+/**
+ * Rejects lines asking for more than the portal's available stock (on hand minus reserved,
+ * in the item's sale unit). The B2B portal has no backorder setting, so nothing may oversell.
+ */
+function assertPortalStock(
+  lines: { variantId: string; quantity: number }[],
+  variantIndex: Map<string, { productName: string; sku: string; stockLevel: number; saleUnit: string }>
+) {
+  const requested = new Map<string, number>();
+  for (const line of lines) {
+    requested.set(line.variantId, (requested.get(line.variantId) ?? 0) + line.quantity);
+  }
+  const shortages: { variantId: string; sku: string; name: string; requested: number; available: number; saleUnit: string }[] = [];
+  for (const [variantId, qty] of requested) {
+    const v = variantIndex.get(variantId);
+    if (!v) continue;
+    if (qty > v.stockLevel) {
+      shortages.push({ variantId, sku: v.sku, name: v.productName, requested: qty, available: v.stockLevel, saleUnit: v.saleUnit });
+    }
+  }
+  if (!shortages.length) return;
+  const message = shortages
+    .map((s) =>
+      s.available <= 0
+        ? `${s.name} is out of stock`
+        : `Only ${s.available} ${plural(s.saleUnit, s.available)} of ${s.name} available (you asked for ${s.requested})`
+    )
+    .join('; ');
+  throw Object.assign(new Error(message), { status: 409, code: 'INSUFFICIENT_STOCK', shortages });
+}
+
 export async function createPortalOrder(opts: {
   organizationId: string;
   customer: Customer;
-  lines: { variantId: string; quantity: number }[];
+  lines: { variantId: string; quantity: number; unitPrice?: number }[];
   shippingMethod?: string;
   shippingMethodCode?: string;
   customerNotes?: string;
@@ -65,13 +103,21 @@ export async function createPortalOrder(opts: {
   affiliateTrackingCode?: string;
   affiliateSessionId?: string;
   affiliateClickId?: string;
+  /** Staff-placed orders may exceed portal stock; retailer orders never can. */
+  allowOversell?: boolean;
+  /** Staff orders paid on account: charge the retailer's trade credit in the same transaction (400 if over the limit). */
+  chargeTradeCredit?: boolean;
+  internalNotes?: string;
 }) {
   if (!opts.lines.length) {
     throw Object.assign(new Error('Order must include at least one line'), { status: 400 });
   }
 
   const products = await listPortalProducts({ organizationId: opts.organizationId, customer: opts.customer });
-  const variantIndex = new Map<string, { productName: string; sku: string; name: string; casePrice: number; vatRate: number }>();
+  const variantIndex = new Map<
+    string,
+    { productName: string; sku: string; name: string; casePrice: number; vatRate: number; stockLevel: number; saleUnit: string }
+  >();
   for (const p of products) {
     for (const v of p.variants) {
       variantIndex.set(v.id, {
@@ -79,9 +125,15 @@ export async function createPortalOrder(opts: {
         sku: v.sku,
         name: v.name,
         casePrice: v.casePrice,
-        vatRate: v.vatRate
+        vatRate: v.vatRate,
+        stockLevel: v.stockLevel,
+        saleUnit: v.saleUnit
       });
     }
+  }
+
+  if (!opts.allowOversell) {
+    assertPortalStock(opts.lines, variantIndex);
   }
 
   const settings = await getOrCreateB2bSettings(opts.organizationId);
@@ -126,7 +178,8 @@ export async function createPortalOrder(opts: {
     if (!variant) {
       throw Object.assign(new Error(`Variant ${line.variantId} not found`), { status: 400 });
     }
-    const net = priced.casePrice * line.quantity;
+    const unitPrice = line.unitPrice != null && line.unitPrice >= 0 ? line.unitPrice : priced.casePrice;
+    const net = unitPrice * line.quantity;
     const vat = net * priced.vatRate;
     subtotal += net;
     taxAmount += vat;
@@ -135,7 +188,7 @@ export async function createPortalOrder(opts: {
       sku: priced.sku,
       name: priced.name,
       quantity: line.quantity,
-      unitPrice: priced.casePrice,
+      unitPrice,
       taxRate: priced.vatRate,
       taxAmount: vat,
       lineTotal: net + vat
@@ -193,6 +246,7 @@ export async function createPortalOrder(opts: {
       fulfillmentStatus: 'pending',
       shippingMethod: shippingLabel,
       customerNotes: opts.customerNotes ?? null,
+      internalNotes: opts.internalNotes ?? null,
       status: 'confirmed'
     });
     await orderRepo.save(order);
@@ -288,6 +342,10 @@ export async function createPortalOrder(opts: {
       })
     );
 
+    if (opts.chargeTradeCredit) {
+      await chargeTradeCreditTx(manager, opts.organizationId, opts.customer.id, order);
+    }
+
     return orderRepo.findOne({
       where: { id: order.id },
       relations: ['lines', 'customer', 'organization']
@@ -295,50 +353,259 @@ export async function createPortalOrder(opts: {
   });
 }
 
-export async function listPortalOrders(customerId: string) {
-  const repo = AppDataSource.getRepository(Order);
-  const orders = await repo.find({
-    where: { customer: { id: customerId }, channel: 'b2b_portal' },
-    relations: ['lines'],
-    order: { createdAt: 'DESC' },
-    take: 100
-  });
-  const { mapOrderToPortal } = await import('./b2bCatalog.service.js');
-  const shipmentRepo = AppDataSource.getRepository(B2bShipment);
-  const result = [];
-  for (const o of orders) {
-    const mapped = mapOrderToPortal(o);
-    const shipment = await shipmentRepo.findOne({
-      where: { order: { id: o.id } },
-      relations: ['events'],
-      order: { createdAt: 'DESC' }
-    });
-    if (shipment) {
-      (mapped as any).trackingNumber = shipment.trackingNumber || undefined;
-      (mapped as any).fulfillmentStatus = shipment.status;
-      (mapped as any).shipment = {
-        id: shipment.id,
-        status: shipment.status,
-        carrier: shipment.carrier,
-        trackingNumber: shipment.trackingNumber,
-        events: (shipment.events || [])
-          .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt))
-          .map((e) => ({
-            id: e.id,
-            status: e.status,
-            message: e.message,
-            createdAt: e.createdAt
-          }))
-      };
-    }
-    result.push(mapped);
-  }
-  return result;
+export const PORTAL_ORDER_STATUSES = ['Pending', 'Processing', 'Delivered', 'Cancelled'] as const;
+export type PortalOrderStatus = (typeof PORTAL_ORDER_STATUSES)[number];
+
+const PORTAL_STATUS_TO_DB: Record<PortalOrderStatus, Order['status'][]> = {
+  Pending: ['pending', 'on_hold'],
+  Processing: ['confirmed', 'processing'],
+  Delivered: ['completed'],
+  Cancelled: ['cancelled', 'refunded']
+};
+
+const PORTAL_SORT_COLUMNS = {
+  date: 'o.orderDate',
+  total: 'o.total',
+  status: 'o.status'
+} as const;
+
+export type PortalOrderListQuery = {
+  page: number;
+  pageSize: number;
+  sort: keyof typeof PORTAL_SORT_COLUMNS;
+  dir: 'asc' | 'desc';
+  search?: string;
+  status?: PortalOrderStatus;
+  dateFrom?: string;
+  dateTo?: string;
+  branchId?: string;
+};
+
+function branchLabel(addr: { addressLine1: string; city: string }) {
+  return [addr.addressLine1, addr.city].filter(Boolean).join(', ');
 }
 
+function serializeShipment(shipment: B2bShipment) {
+  return {
+    id: shipment.id,
+    status: shipment.status,
+    carrier: shipment.carrier,
+    trackingNumber: shipment.trackingNumber,
+    events: (shipment.events || [])
+      .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt))
+      .map((e) => ({
+        id: e.id,
+        status: e.status,
+        message: e.message,
+        createdAt: e.createdAt
+      }))
+  };
+}
+
+/** Paginated, filtered order list strictly scoped to one B2B customer. */
+export async function listPortalOrders(customerId: string, query: PortalOrderListQuery) {
+  const qb = AppDataSource.getRepository(Order)
+    .createQueryBuilder('o')
+    .where('o.customer_id = :customerId', { customerId })
+    .andWhere("o.channel = 'b2b_portal'");
+
+  if (query.search) {
+    const term = query.search.replace(/[\\%_]/g, (c) => `\\${c}`);
+    qb.andWhere('o.order_number LIKE :search', { search: `%${term}%` });
+  }
+  if (query.status) {
+    qb.andWhere('o.status IN (:...statuses)', { statuses: PORTAL_STATUS_TO_DB[query.status] });
+  }
+  if (query.dateFrom) {
+    qb.andWhere('o.order_date >= :dateFrom', { dateFrom: `${query.dateFrom} 00:00:00` });
+  }
+  if (query.dateTo) {
+    qb.andWhere('o.order_date <= :dateTo', { dateTo: `${query.dateTo} 23:59:59` });
+  }
+  if (query.branchId) {
+    const branch = await AppDataSource.getRepository(CustomerAddress).findOne({
+      where: { id: query.branchId, customer: { id: customerId } }
+    });
+    if (!branch) {
+      throw Object.assign(new Error('Branch not found'), { status: 400 });
+    }
+    qb.andWhere(
+      `EXISTS (SELECT 1 FROM order_addresses oa WHERE oa.order_id = o.id AND oa.address_type = 'shipping'
+        AND oa.address_line1 = :branchLine1 AND oa.postal_code = :branchPostcode)`,
+      { branchLine1: branch.addressLine1, branchPostcode: branch.postalCode }
+    );
+  }
+
+  const direction = query.dir === 'asc' ? 'ASC' : 'DESC';
+  qb.orderBy(PORTAL_SORT_COLUMNS[query.sort], direction)
+    .addOrderBy('o.id', direction)
+    .skip((query.page - 1) * query.pageSize)
+    .take(query.pageSize);
+
+  const [orders, total] = await qb.getManyAndCount();
+  const ids = orders.map((o) => o.id);
+
+  const [lines, addresses, shipments] = ids.length
+    ? await Promise.all([
+        AppDataSource.getRepository(OrderLine).find({ where: { order: { id: In(ids) } }, relations: ['order'] }),
+        AppDataSource.getRepository(OrderAddress).find({
+          where: { order: { id: In(ids) }, addressType: 'shipping' },
+          relations: ['order']
+        }),
+        AppDataSource.getRepository(B2bShipment).find({
+          where: { order: { id: In(ids) } },
+          relations: ['order', 'events'],
+          order: { createdAt: 'DESC' }
+        })
+      ])
+    : [[], [], []];
+
+  const { mapOrderToPortal } = await import('./b2bCatalog.service.js');
+  const data = orders.map((o) => {
+    const mapped = mapOrderToPortal({ ...o, lines: lines.filter((l) => l.order.id === o.id) });
+    const addr = addresses.find((a) => a.order.id === o.id);
+    const shipment = shipments.find((s) => s.order.id === o.id);
+    return {
+      ...mapped,
+      orderDate: o.orderDate,
+      paymentStatus: o.paymentStatus,
+      branch: addr ? branchLabel(addr) : null,
+      trackingNumber: shipment?.trackingNumber || undefined,
+      fulfillmentStatus: shipment?.status,
+      shipment: shipment ? serializeShipment(shipment) : undefined
+    };
+  });
+
+  return { data, meta: { total, page: query.page, pageSize: query.pageSize } };
+}
+
+/** Single order detail; returns null unless the order belongs to this customer. */
 export async function getPortalOrder(customerId: string, orderId: string) {
-  const orders = await listPortalOrders(customerId);
-  return orders.find((o) => o.id === orderId) || null;
+  if (!/^\d+$/.test(orderId)) return null;
+  const order = await AppDataSource.getRepository(Order).findOne({
+    where: { id: orderId, customer: { id: customerId }, channel: 'b2b_portal' },
+    relations: ['lines', 'addresses']
+  });
+  if (!order) return null;
+
+  const [shipment, invoice] = await Promise.all([
+    AppDataSource.getRepository(B2bShipment).findOne({
+      where: { order: { id: order.id } },
+      relations: ['events'],
+      order: { createdAt: 'DESC' }
+    }),
+    AppDataSource.getRepository(Invoice).findOne({
+      where: { orderId: order.id, customerId },
+      order: { id: 'DESC' }
+    })
+  ]);
+
+  const { mapOrderToPortal } = await import('./b2bCatalog.service.js');
+  const mapped = mapOrderToPortal(order);
+  const shipping = (order.addresses || []).find((a) => a.addressType === 'shipping');
+  const shipmentJson = shipment ? serializeShipment(shipment) : undefined;
+
+  const timeline: { status: string; label: string; at: Date }[] = [
+    { status: 'placed', label: 'Order placed', at: order.orderDate }
+  ];
+  for (const e of shipmentJson?.events || []) {
+    timeline.push({ status: e.status, label: e.message || e.status, at: e.createdAt });
+  }
+  if (order.completedAt) timeline.push({ status: 'completed', label: 'Order completed', at: order.completedAt });
+  if (order.cancelledAt) timeline.push({ status: 'cancelled', label: 'Order cancelled', at: order.cancelledAt });
+  timeline.sort((a, b) => +new Date(a.at) - +new Date(b.at));
+
+  return {
+    ...mapped,
+    orderDate: order.orderDate,
+    paymentStatus: order.paymentStatus,
+    currency: order.currency,
+    discountAmount: num(order.discountAmount),
+    shippingAmount: num(order.shippingAmount),
+    branch: shipping ? branchLabel(shipping) : null,
+    deliveryAddress: shipping
+      ? {
+          name: [shipping.firstName, shipping.lastName].filter(Boolean).join(' ') || null,
+          company: shipping.company,
+          addressLine1: shipping.addressLine1,
+          addressLine2: shipping.addressLine2,
+          city: shipping.city,
+          postalCode: shipping.postalCode,
+          countryCode: shipping.countryCode,
+          phone: shipping.phone
+        }
+      : null,
+    trackingNumber: shipment?.trackingNumber || undefined,
+    fulfillmentStatus: shipment?.status,
+    shipment: shipmentJson,
+    timeline,
+    invoice: invoice
+      ? {
+          invoiceNumber: invoice.invoiceNumber,
+          status: invoice.status,
+          invoiceDate: invoice.invoiceDate,
+          documentUrl: invoice.documentUrl || null
+        }
+      : null
+  };
+}
+
+/** Consume trade credit for an order inside an open transaction: credit check, payment row and ledger entry. */
+async function chargeTradeCreditTx(manager: EntityManager, organizationId: string, customerId: string, order: Order) {
+  const customerRepo = manager.getRepository(Customer);
+  const customer = await customerRepo.findOne({ where: { id: customerId }, lock: { mode: 'pessimistic_write' } });
+  if (!customer) {
+    throw Object.assign(new Error('Customer not found'), { status: 404 });
+  }
+
+  const available = num(customer.creditLimit) - num(customer.creditUsed);
+  const total = num(order.total);
+  if (available + 0.0001 < total) {
+    throw Object.assign(
+      new Error(`Insufficient trade credit: order total £${total.toFixed(2)}, available £${Math.max(0, available).toFixed(2)}`),
+      { status: 400, code: 'INSUFFICIENT_CREDIT' }
+    );
+  }
+
+  customer.creditUsed = Number((num(customer.creditUsed) + total).toFixed(4));
+  await customerRepo.save(customer);
+
+  order.paymentStatus = 'authorized';
+  order.status = 'processing';
+  order.customerNotes = [order.customerNotes, 'Paid via Trade Credit'].filter(Boolean).join(' | ');
+  await manager.getRepository(Order).save(order);
+
+  const payment = await manager.getRepository(Payment).save(
+    manager.getRepository(Payment).create({
+      organizationId,
+      orderId: order.id,
+      transactionId: `TC-${order.orderNumber}`,
+      paymentMethod: 'other',
+      paymentType: 'sale',
+      amount: total,
+      currency: order.currency || 'GBP',
+      feeAmount: 0,
+      status: 'completed',
+      paymentDate: new Date(),
+      reference: 'trade_credit',
+      notes: 'B2B trade credit',
+      processedAt: new Date()
+    })
+  );
+
+  await manager.getRepository(B2bCreditLedger).save(
+    manager.getRepository(B2bCreditLedger).create({
+      organization: { id: organizationId } as any,
+      customer,
+      entryType: 'invoice',
+      reference: `INV-${order.orderNumber}`,
+      description: `Trade credit invoice for ${order.orderNumber}`,
+      amount: total,
+      balanceAfter: num(customer.creditUsed),
+      orderId: order.id,
+      paymentId: payment.id
+    })
+  );
 }
 
 export async function applyTradeCredit(opts: { organizationId: string; customer: Customer; orderId: string }) {
@@ -355,57 +622,7 @@ export async function applyTradeCredit(opts: { organizationId: string; customer:
       return order;
     }
 
-    const customerRepo = manager.getRepository(Customer);
-    const customer = await customerRepo.findOne({ where: { id: opts.customer.id } });
-    if (!customer) {
-      throw Object.assign(new Error('Customer not found'), { status: 404 });
-    }
-
-    const available = num(customer.creditLimit) - num(customer.creditUsed);
-    const total = num(order.total);
-    if (available + 0.0001 < total) {
-      throw Object.assign(new Error('Insufficient trade credit'), { status: 400 });
-    }
-
-    customer.creditUsed = Number((num(customer.creditUsed) + total).toFixed(4));
-    await customerRepo.save(customer);
-
-    order.paymentStatus = 'authorized';
-    order.status = 'processing';
-    order.customerNotes = [order.customerNotes, 'Paid via Trade Credit'].filter(Boolean).join(' | ');
-    await orderRepo.save(order);
-
-    const payment = await manager.getRepository(Payment).save(
-      manager.getRepository(Payment).create({
-        organizationId: opts.organizationId,
-        orderId: order.id,
-        transactionId: `TC-${order.orderNumber}`,
-        paymentMethod: 'other',
-        paymentType: 'sale',
-        amount: total,
-        currency: order.currency || 'GBP',
-        feeAmount: 0,
-        status: 'completed',
-        paymentDate: new Date(),
-        reference: 'trade_credit',
-        notes: 'B2B trade credit',
-        processedAt: new Date()
-      })
-    );
-
-    await manager.getRepository(B2bCreditLedger).save(
-      manager.getRepository(B2bCreditLedger).create({
-        organization: { id: opts.organizationId } as any,
-        customer,
-        entryType: 'invoice',
-        reference: `INV-${order.orderNumber}`,
-        description: `Trade credit invoice for ${order.orderNumber}`,
-        amount: total,
-        balanceAfter: num(customer.creditUsed),
-        orderId: order.id,
-        paymentId: payment.id
-      })
-    );
+    await chargeTradeCreditTx(manager, opts.organizationId, opts.customer.id, order);
 
     return orderRepo.findOne({ where: { id: order.id }, relations: ['lines', 'customer'] });
   });

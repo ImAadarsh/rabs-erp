@@ -99,6 +99,38 @@ export async function getMetaCapabilities(organizationId: string): Promise<MetaC
     }
   }
 
+  // Per-account token check, persisted so /api/social/accounts also flags dead tokens.
+  const tokenState = new Map<string, boolean | null>();
+  await Promise.all(
+    [...new Set(accounts.filter((a) => a.accessToken && metaAccountKind(a) !== 'other').map((a) => a.accessToken!))].map(
+      async (token) => {
+        try {
+          tokenState.set(token, (await debugMetaToken(token)).isValid);
+        } catch (err) {
+          tokenState.set(token, err instanceof MetaGraphError ? false : null);
+        }
+      }
+    )
+  );
+  for (const a of accounts) {
+    if (!a.accessToken || metaAccountKind(a) === 'other') continue;
+    const valid = tokenState.get(a.accessToken);
+    if (valid == null) continue;
+    const meta = (a.metadata || {}) as Record<string, unknown>;
+    const flaggedForToken = meta.reconnectReason === 'token_invalid';
+    let next: Record<string, unknown> | null = null;
+    if (!valid && (!meta.needsReconnect || !flaggedForToken)) {
+      next = { ...meta, needsReconnect: true, reconnectReason: 'token_invalid', tokenCheckedAt: new Date().toISOString() };
+    } else if (valid && flaggedForToken) {
+      const { reconnectReason: _r, ...rest } = meta;
+      next = { ...rest, needsReconnect: false, tokenCheckedAt: new Date().toISOString() };
+    }
+    if (next) {
+      a.metadata = next;
+      await repo.update({ id: a.id }, { metadata: next as any }).catch(() => undefined);
+    }
+  }
+
   const has = (name: string) => scopes.includes(name);
 
   const capabilities: MetaCapability[] = [

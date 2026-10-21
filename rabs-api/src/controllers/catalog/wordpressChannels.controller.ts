@@ -24,6 +24,18 @@ import {
 } from '@services/import/wordpressApiExport.js';
 import { runProductImport } from '@services/import/productImportService.js';
 import { summarizeProducts } from '@services/import/parserUtils.js';
+import { zodMessage } from '@services/catalog/zodMessage.js';
+
+/** The JSON column usually arrives already parsed; legacy rows may still be strings. */
+function parseJobSummary(summary: unknown): Record<string, unknown> | null {
+  if (summary == null || summary === '') return null;
+  if (typeof summary !== 'string') return summary as Record<string, unknown>;
+  try {
+    return JSON.parse(summary) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
 
 // ─── Validation Schemas ───────────────────────────────────────────────────────
 
@@ -66,7 +78,7 @@ function sanitizeUrl(url: string): string {
   return u.replace(/\/$/, '');
 }
 
-async function loadWordPressCredentials(
+export async function loadWordPressCredentials(
   connectionId: string,
   organizationId: string
 ): Promise<WordPressApiCredentials> {
@@ -105,7 +117,7 @@ export class WordPressChannelsController {
   static async create(req: Request, res: Response): Promise<void> {
     const parsed = createWordPressSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(parsed.error), details: parsed.error.issues } });
       return;
     }
 
@@ -232,7 +244,7 @@ export class WordPressChannelsController {
 
     const optionsParsed = importOptionsSchema.safeParse({ ...body, ...(body.options ?? {}) });
     if (!optionsParsed.success) {
-      res.status(400).json({ error: { message: 'Invalid options', details: optionsParsed.error.issues } });
+      res.status(400).json({ error: { message: zodMessage(optionsParsed.error), details: optionsParsed.error.issues } });
       return;
     }
 
@@ -329,11 +341,13 @@ export class WordPressChannelsController {
         variants: ci.variants.map((v: Variant): ExportVariant => ({
           sku: v.variantSku,
           name: v.name ?? undefined,
-          price: v.costPrice != null ? Number(v.costPrice) : undefined,
+          price: ci.sellingPrice != null ? Number(ci.sellingPrice) : v.costPrice != null ? Number(v.costPrice) : undefined,
           option1Name: v.option1Name ?? undefined,
           option1Value: v.option1Value ?? undefined,
           option2Name: v.option2Name ?? undefined,
           option2Value: v.option2Value ?? undefined,
+          option3Name: v.option3Name ?? undefined,
+          option3Value: v.option3Value ?? undefined,
           imageUrl: v.imageUrl ?? undefined,
           status: v.status
         }))
@@ -506,7 +520,7 @@ export class WordPressChannelsController {
           recentJobs: recentJobs.map((j) => ({
             id: j.id,
             status: j.status,
-            summary: j.summary ? JSON.parse(j.summary as unknown as string) : null,
+            summary: parseJobSummary(j.summary),
             createdAt: j.createdAt
           }))
         }
