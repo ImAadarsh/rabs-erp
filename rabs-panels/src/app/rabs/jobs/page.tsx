@@ -58,7 +58,7 @@ function JobsList() {
         <span className="text-sm text-muted-foreground">{data ? `${data.total} found` : ''}</span>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-1 -mx-3 px-3 md:mx-0 md:px-0 md:flex-wrap">
+      <div className="flex max-w-full min-w-0 gap-2 overflow-x-auto pb-1 md:flex-wrap">
         <Chip active={!status} onClick={() => setStatus('')} color="#111827">
           All
         </Chip>
@@ -117,7 +117,7 @@ function Chip({ active, onClick, color, textColor, children }: { active: boolean
   return (
     <button
       onClick={onClick}
-      className={clsx('shrink-0 h-9 px-3.5 rounded-full text-sm font-semibold border transition whitespace-nowrap', active ? 'shadow' : 'bg-card border-border text-foreground/80 hover:bg-muted')}
+      className={clsx('shrink-0 h-11 px-3.5 rounded-full text-sm font-semibold border transition whitespace-nowrap', active ? 'shadow' : 'bg-card border-border text-foreground/80 hover:bg-muted')}
       style={active ? { backgroundColor: color, borderColor: color, color: textColor || '#fff' } : undefined}
     >
       {!active && <span className="inline-block h-2.5 w-2.5 rounded-full mr-2 align-middle" style={{ backgroundColor: color }} />}

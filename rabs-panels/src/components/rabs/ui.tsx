@@ -51,9 +51,9 @@ export function NextActionButton({ label, onClick, loading, sub }: { label: stri
       className="w-full rounded-2xl bg-brand text-white shadow-lg shadow-brand/30 hover:bg-brand-600 active:scale-[0.99] transition px-6 py-5 text-left disabled:opacity-60"
     >
       <div className="flex items-center justify-between gap-4">
-        <div>
+        <div className="min-w-0">
           <div className="text-xs uppercase tracking-widest text-white/75 font-medium">Next step</div>
-          <div className="text-xl md:text-2xl font-extrabold tracking-tight">NEXT: {label}</div>
+          <div className="text-xl md:text-2xl font-extrabold tracking-tight break-words">NEXT: {label}</div>
           {sub && <div className="text-sm text-white/85 mt-0.5">{sub}</div>}
         </div>
         <div className="h-12 w-12 shrink-0 rounded-full bg-white/20 flex items-center justify-center text-2xl">
@@ -64,10 +64,10 @@ export function NextActionButton({ label, onClick, loading, sub }: { label: stri
   );
 }
 
-export function StatusBadge({ label, color, textColor, size = 'md' }: { label: string; color: string; textColor?: string; size?: 'sm' | 'md' }) {
+export function StatusBadge({ label, color, textColor, size = 'md', className }: { label: string; color: string; textColor?: string; size?: 'sm' | 'md'; className?: string }) {
   return (
     <span
-      className={clsx('inline-flex items-center rounded-full font-semibold whitespace-nowrap', size === 'sm' ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1 text-xs')}
+      className={clsx('inline-flex max-w-full items-center rounded-full font-semibold whitespace-nowrap', size === 'sm' ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1 text-xs', className)}
       style={{ backgroundColor: color, color: textColor || '#fff' }}
     >
       {label}
@@ -138,17 +138,17 @@ export function Modal({ open, onClose, title, children, footer, wide }: { open: 
 
 export function ProgressBar({ steps, index, closed }: { steps: Array<{ key: string; label: string }>; index: number; closed?: boolean }) {
   return (
-    <div className="overflow-x-auto -mx-1 px-1">
-      <ol className="flex items-start min-w-[640px]">
+    <div className="w-full min-w-0 max-w-full">
+      <ol className="flex w-full min-w-0 items-start">
         {steps.map((s, i) => {
           const done = i < index || (closed && i === index);
           const current = i === index && !closed;
           return (
-            <li key={s.key} className="flex-1 flex flex-col items-center relative">
-              {i > 0 && <span className={clsx('absolute top-3.5 right-1/2 w-full h-1 -z-0', i <= index ? 'bg-brand' : 'bg-border')} />}
+            <li key={s.key} className="flex-1 min-w-0 flex flex-col items-center relative">
+              {i > 0 && <span className={clsx('absolute top-3 md:top-3.5 right-1/2 w-full h-1 -z-0', i <= index ? 'bg-brand' : 'bg-border')} />}
               <span
                 className={clsx(
-                  'relative z-10 h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold border-2',
+                  'relative z-10 h-6 w-6 md:h-8 md:w-8 rounded-full flex items-center justify-center text-[10px] md:text-xs font-bold border-2',
                   done && 'bg-brand border-brand text-white',
                   current && 'bg-background border-brand text-brand ring-4 ring-brand/20',
                   !done && !current && 'bg-background border-border text-muted-foreground'
@@ -156,7 +156,7 @@ export function ProgressBar({ steps, index, closed }: { steps: Array<{ key: stri
               >
                 {done ? <Check size={16} /> : i + 1}
               </span>
-              <span className={clsx('mt-1.5 text-[10px] tracking-tight text-center leading-tight px-0.5', current ? 'font-bold text-foreground' : 'text-muted-foreground')}>{s.label.replace('/', '/\u200b')}</span>
+              <span className={clsx('mt-1.5 w-full text-[9px] md:text-[10px] tracking-tight text-center leading-tight px-0.5 break-words', current ? 'font-bold text-foreground' : 'text-muted-foreground')}>{s.label.replace('/', '/\u200b')}</span>
             </li>
           );
         })}

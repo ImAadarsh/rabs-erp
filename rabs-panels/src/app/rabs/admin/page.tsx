@@ -305,7 +305,7 @@ function ProductsTab() {
         {list.length === 0 ? (
           <Empty>No products.</Empty>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="max-w-full overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-muted-foreground border-b border-border">
@@ -675,7 +675,7 @@ function PermissionsTab() {
   return (
     <div className="space-y-4">
       <Card pad={false}>
-        <div className="overflow-x-auto">
+        <div className="max-w-full overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
@@ -830,7 +830,7 @@ function AuditTab() {
       {data.length === 0 ? (
         <Empty>No price changes recorded yet.</Empty>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="max-w-full overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-muted-foreground border-b border-border">

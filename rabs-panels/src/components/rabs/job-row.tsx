@@ -9,7 +9,7 @@ import { StatusBadge } from './ui';
 export function JobRow({ j }: { j: any }) {
   const when = j.nextBooking ? `Booked ${fmtDate(j.nextBooking)}` : j.nextAppointment ? `Appt ${fmtDateTime(j.nextAppointment)}` : null;
   return (
-    <Link href={`/rabs/jobs/${j.id}`} className="flex items-center gap-3 px-4 py-3.5 hover:bg-muted/60 border-b border-border/60 last:border-0">
+    <Link href={`/rabs/jobs/${j.id}`} className="flex min-w-0 max-w-full items-center gap-3 px-4 py-3.5 hover:bg-muted/60 border-b border-border/60 last:border-0">
       <span className="w-1.5 self-stretch rounded-full shrink-0" style={{ backgroundColor: j.statusColor }} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
@@ -31,8 +31,8 @@ export function JobRow({ j }: { j: any }) {
           {when && <span>{when}</span>}
         </div>
       </div>
-      <div className="flex flex-col items-end gap-1 shrink-0">
-        <StatusBadge size="sm" label={j.statusLabel} color={j.statusColor} textColor={j.statusTextColor} />
+      <div className="flex min-w-0 max-w-[46%] flex-col items-end gap-1 overflow-hidden">
+        <StatusBadge size="sm" className="truncate" label={j.statusLabel} color={j.statusColor} textColor={j.statusTextColor} />
         {j.total !== undefined && (j.total > 0 || j.quoteTotal) ? (
           <span className="text-xs text-muted-foreground">
             {j.balance > 0 && j.total > 0 ? `Due ${gbp(j.balance)}` : gbp(j.total || j.quoteTotal)}

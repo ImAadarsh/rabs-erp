@@ -94,9 +94,9 @@ export function RabsShell({ children }: { children: ReactNode }) {
           </div>
         </aside>
 
-        <div className="md:pl-60">
+        <div className="w-full min-w-0 max-w-full overflow-x-clip md:pl-60">
           <TopBar fieldOnly={fieldOnly} />
-          <main className="px-3 md:px-6 py-4 md:py-6 pb-28 md:pb-10 max-w-6xl mx-auto">
+          <main className="w-full min-w-0 max-w-6xl mx-auto px-3 md:px-6 py-4 md:py-6 pb-28 md:pb-10">
             {error ? (
               <div className="rounded-2xl border border-red-200 bg-red-50 text-red-700 p-4 text-sm">
                 {error}{' '}
@@ -121,7 +121,7 @@ export function RabsShell({ children }: { children: ReactNode }) {
               const active = isActive(n);
               const isNew = n.href === '/rabs/new';
               return (
-                <Link key={n.href} href={n.href} className="flex flex-col items-center justify-center h-16 gap-0.5">
+                <Link key={n.href} href={n.href} className="flex min-w-0 flex-col items-center justify-center h-16 gap-0.5 px-0.5">
                   {isNew ? (
                     <span className="h-11 w-11 -mt-5 rounded-full bg-brand text-white flex items-center justify-center shadow-lg shadow-brand/40">
                       <Plus size={24} />
@@ -129,7 +129,7 @@ export function RabsShell({ children }: { children: ReactNode }) {
                   ) : (
                     <n.icon size={22} className={active ? 'text-brand' : 'text-muted-foreground'} />
                   )}
-                  <span className={clsx('text-[11px] font-medium', active ? 'text-brand' : 'text-muted-foreground')}>{isNew ? 'New' : n.label}</span>
+                  <span className={clsx('max-w-full truncate text-[11px] font-medium', active ? 'text-brand' : 'text-muted-foreground')}>{isNew ? 'New' : n.label}</span>
                 </Link>
               );
             })}
@@ -201,12 +201,12 @@ function TopBar({ fieldOnly }: { fieldOnly: boolean }) {
   };
 
   return (
-    <header className="sticky top-0 z-20 bg-card/90 backdrop-blur border-b border-border">
-      <div className="h-16 flex items-center gap-3 px-3 md:px-6 max-w-6xl mx-auto">
-        <Link href="/rabs" className="md:hidden shrink-0">
-          <BrandWordmark tone="onLight" size="sm" />
+    <header className="sticky top-0 z-20 max-w-full bg-card/90 backdrop-blur border-b border-border">
+      <div className="mx-auto flex h-16 w-full min-w-0 max-w-6xl items-center gap-2 px-3 md:gap-3 md:px-6">
+        <Link href="/rabs" className="md:hidden shrink-0 max-w-[5.5rem]">
+          <BrandWordmark tone="onLight" size="sm" className="max-w-[5.5rem]" />
         </Link>
-        <div className="relative flex-1">
+        <div className="relative min-w-0 flex-1">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             value={q}
@@ -219,8 +219,8 @@ function TopBar({ fieldOnly }: { fieldOnly: boolean }) {
               if (e.key === 'Enter' && res?.jobs?.[0]) go(`/rabs/jobs/${res.jobs[0].id}`);
               if (e.key === 'Escape') setOpen(false);
             }}
-            placeholder={fieldOnly ? 'Search my jobs' : 'Search name, phone, postcode, job / quote / invoice no.'}
-            className="w-full h-11 rounded-xl border border-border bg-background pl-10 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40"
+            placeholder={fieldOnly ? 'Search my jobs' : 'Search name, phone, postcode…'}
+            className="w-full min-w-0 h-11 rounded-xl border border-border bg-background pl-10 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand/40"
             aria-label="Search"
           />
           {open && q.trim().length >= 2 && (
@@ -231,8 +231,8 @@ function TopBar({ fieldOnly }: { fieldOnly: boolean }) {
                 {res && res.jobs.length === 0 && res.customersWithoutJobs.length === 0 && <div className="p-4 text-sm text-muted-foreground">No matches for “{q}”.</div>}
                 {res?.jobs.map((j) => (
                   <button key={j.id} onClick={() => go(`/rabs/jobs/${j.id}`)} className="w-full text-left px-4 py-3 hover:bg-muted border-b border-border/60 last:border-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="font-semibold truncate">
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <div className="font-semibold truncate min-w-0">
                         {j.customerName} <span className="text-muted-foreground font-normal">· {j.jobNumber}</span>
                       </div>
                       <StatusBadge size="sm" label={j.statusLabel} color={j.statusColor} textColor={j.statusTextColor} />
@@ -252,7 +252,7 @@ function TopBar({ fieldOnly }: { fieldOnly: boolean }) {
             </>
           )}
         </div>
-        <div className="relative md:hidden">
+        <div className="relative md:hidden shrink-0">
           <button onClick={() => setShowUser((v) => !v)} className="h-11 w-11 rounded-xl border border-border flex items-center justify-center" aria-label="Menu">
             <Settings size={18} />
           </button>

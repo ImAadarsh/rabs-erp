@@ -29,18 +29,18 @@ const FIELD_STEPS = [
 function HowItWorks({ office, onClose }: { office: boolean; onClose: () => void }) {
   const steps = office ? OFFICE_STEPS : FIELD_STEPS;
   return (
-    <div className="rounded-2xl border-2 border-brand/40 bg-brand/5 p-4 md:p-5">
+    <div className="w-full min-w-0 max-w-full rounded-2xl border-2 border-brand/40 bg-brand/5 p-4 md:p-5">
       <div className="flex items-start justify-between gap-3">
-        <div className="text-lg font-extrabold">How it works</div>
-        <button onClick={onClose} className="p-2 -m-2 rounded-lg hover:bg-muted" aria-label="Close help">
+        <div className="min-w-0 text-lg font-extrabold">How it works</div>
+        <button onClick={onClose} className="shrink-0 min-h-11 min-w-11 -m-2 inline-flex items-center justify-center rounded-lg hover:bg-muted" aria-label="Close help">
           <X size={18} />
         </button>
       </div>
       <ol className="mt-2 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {steps.map(([t, d], i) => (
-          <li key={t} className="flex gap-3">
+          <li key={t} className="flex min-w-0 gap-3">
             <span className="h-7 w-7 shrink-0 rounded-full bg-brand text-white text-sm font-bold flex items-center justify-center">{i + 1}</span>
-            <span className="text-sm">
+            <span className="min-w-0 break-words text-sm">
               <b>{t}</b>
               <span className="block text-muted-foreground">{d}</span>
             </span>
@@ -72,9 +72,9 @@ export default function RabsHome() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">{greeting()}</h1>
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-extrabold tracking-tight break-words">{greeting()}</h1>
           <p className="text-sm text-muted-foreground">{fmtDate(d.today)}</p>
         </div>
         {!help && (
@@ -205,10 +205,10 @@ export default function RabsHome() {
 
 function Stat({ icon, label, value, href }: { icon: React.ReactNode; label: string; value: React.ReactNode; href: string }) {
   return (
-    <Link href={href} className="rounded-2xl border border-border bg-card p-4 hover:shadow-md transition">
-      <div className="flex items-center gap-2 text-muted-foreground text-xs font-semibold">
-        <span className="text-brand">{icon}</span>
-        {label}
+    <Link href={href} className="min-w-0 rounded-2xl border border-border bg-card p-4 hover:shadow-md transition">
+      <div className="flex min-w-0 items-center gap-2 text-muted-foreground text-xs font-semibold">
+        <span className="shrink-0 text-brand">{icon}</span>
+        <span className="min-w-0 break-words">{label}</span>
       </div>
       <div className="text-2xl font-extrabold mt-1">{value}</div>
     </Link>
