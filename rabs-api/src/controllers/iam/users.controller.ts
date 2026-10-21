@@ -242,6 +242,24 @@ export class UsersController {
 
     res.json({ data: { message: 'Password set successfully' } });
   }
+
+  /** Admin / super-admin sets a user's password without knowing the current one. */
+  static async adminResetPassword(req: Request, res: Response): Promise<void> {
+    const parsed = setPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: { message: 'Invalid payload', details: parsed.error.issues } });
+      return;
+    }
+    const repo = AppDataSource.getRepository(User);
+    const user = await repo.findOne({ where: { id: req.params.id } });
+    if (!user) {
+      res.status(404).json({ error: { message: 'User not found' } });
+      return;
+    }
+    user.passwordHash = await hashPassword(parsed.data.password);
+    await repo.save(user);
+    res.json({ data: { message: 'Password reset successfully' } });
+  }
 }
 
 

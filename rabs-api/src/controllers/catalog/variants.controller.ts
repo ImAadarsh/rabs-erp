@@ -53,7 +53,7 @@ const updateVariantSchema = z.object({
 export class VariantsController {
   static async list(req: Request, res: Response): Promise<void> {
     const repo = AppDataSource.getRepository(Variant);
-    const { catalogItemId, status, search } = req.query;
+    const { catalogItemId, status, search, limit } = req.query;
     
     const queryBuilder = repo.createQueryBuilder('v')
       .leftJoinAndSelect('v.catalogItem', 'ci')
@@ -70,9 +70,14 @@ export class VariantsController {
 
     if (search) {
       queryBuilder.andWhere(
-        '(v.variant_sku LIKE :search OR v.name LIKE :search)',
+        '(v.variant_sku LIKE :search OR v.name LIKE :search OR ci.sku LIKE :search OR ci.name LIKE :search)',
         { search: `%${search}%` }
       );
+    }
+
+    if (limit != null && String(limit).trim() !== '') {
+      const take = Math.min(Math.max(Number(limit) || 40, 1), 100);
+      queryBuilder.take(take);
     }
 
     const variants = await queryBuilder.getMany();

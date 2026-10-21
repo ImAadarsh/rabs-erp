@@ -39,6 +39,7 @@ iamRouter.patch('/users/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), UsersControl
 iamRouter.delete('/users/:id', requireRoles('ADMIN', 'SUPER_ADMIN'), UsersController.remove);
 iamRouter.patch('/users/:id/password', UsersController.changePassword); // Any authenticated user can change their own password
 iamRouter.post('/users/:id/password', UsersController.setPassword); // Set initial password for SSO users
+iamRouter.post('/users/:id/reset-password', requireRoles('ADMIN', 'SUPER_ADMIN'), UsersController.adminResetPassword);
 
 // Roles
 iamRouter.get('/roles', requireRoles('ADMIN', 'SUPER_ADMIN'), RolesController.list);

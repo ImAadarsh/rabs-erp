@@ -12,6 +12,7 @@ export function parseProductsBySource(csvText: string, sourceType: ImportSourceT
     case 'woocommerce_csv':
       return parseWooCommerceProductsCsv(csvText);
     case 'wordpress_csv':
+    case 'custom_csv':
       return parseWordpressProductsCsv(csvText);
     default:
       throw new Error(`CSV source "${sourceType}" is not supported`);

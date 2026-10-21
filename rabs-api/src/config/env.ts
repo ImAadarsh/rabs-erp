@@ -25,7 +25,9 @@ export const env = {
   // Google OAuth
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ?? '',
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ?? '',
-  GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI ?? 'http://localhost:4000/api/iam/auth/google/callback',
+  GOOGLE_REDIRECT_URI:
+    process.env.GOOGLE_REDIRECT_URI ??
+    `${(process.env.PUBLIC_API_URL ?? 'http://localhost:4000').replace(/\/$/, '')}/api/iam/auth/google/callback`,
 
   // Public origin of this API (no trailing slash)
   PUBLIC_API_URL: process.env.PUBLIC_API_URL ?? 'http://localhost:4000',

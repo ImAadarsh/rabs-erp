@@ -193,7 +193,8 @@ export default function ChannelMappingsPage() {
       )
     },
     {
-      accessorKey: 'catalogItem',
+      id: 'catalogItem',
+      accessorFn: (row) => `${row.catalogItem?.sku || ''} ${row.catalogItem?.name || ''} ${row.variant?.variantSku || ''}`.trim(),
       header: 'Product',
       cell: ({ row }) => (
         <div>

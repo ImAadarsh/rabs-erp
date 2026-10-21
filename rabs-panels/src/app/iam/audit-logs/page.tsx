@@ -40,6 +40,15 @@ export default function AuditLogsPage() {
   const { hasAccess } = useRoleCheck(['ADMIN', 'SUPER_ADMIN']);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<AuditLog[]>([]);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [total, setTotal] = useState(0);
+
+  async function loadLogs(from = fromDate, to = toDate) {
+    const res = await listAuditLogs(500, { from: from || undefined, to: to || undefined });
+    setItems(res.data);
+    setTotal(res.total ?? res.data.length);
+  }
 
   useEffect(() => {
     if (!hydrated || !hasAccess) return;
@@ -49,8 +58,7 @@ export default function AuditLogsPage() {
     }
     (async () => {
       try {
-        const res = await listAuditLogs(50);
-        setItems(res.data);
+        await loadLogs();
       } catch {
         toast.error('Failed to load audit logs');
       } finally {
@@ -175,10 +183,39 @@ export default function AuditLogsPage() {
       <div className="flex flex-col overflow-hidden lg:ml-[280px]">
         <Header title="IAM · Audit Logs" />
         <main className="flex-1 overflow-auto p-4 md:p-6 space-y-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
             <div>
               <h2 className="text-2xl font-bold tracking-tight">Audit Logs</h2>
-              <p className="text-muted-foreground">View system activity and security events.</p>
+              <p className="text-muted-foreground">
+                Every sign-in, create, update and delete is stored in the audit_logs database table (not only today).
+                Use the date range to load previous days. {total ? `${total} matching rows.` : ''}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-sm">
+                From
+                <input type="date" className="mt-1 input" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+              </label>
+              <label className="text-sm">
+                To
+                <input type="date" className="mt-1 input" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+              </label>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={async () => {
+                  setLoading(true);
+                  try {
+                    await loadLogs();
+                  } catch {
+                    toast.error('Failed to load audit logs');
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+              >
+                Apply
+              </button>
             </div>
           </div>
 

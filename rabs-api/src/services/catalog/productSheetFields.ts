@@ -188,17 +188,24 @@ async function resolveLocation(
     relations: ['businessUnit']
   });
   if (!location) {
-    location = await locRepo.save(
-      locRepo.create({
-        businessUnit: bu,
-        code: 'MAIN',
-        name: 'Main Location',
-        type: 'warehouse',
-        countryCode: 'GB',
-        isDefault: true,
-        status: 'active'
-      })
-    );
+    const code = `MAIN-${bu.id}`.slice(0, 50);
+    try {
+      location = await locRepo.save(
+        locRepo.create({
+          businessUnit: bu,
+          code,
+          name: 'Main Location',
+          type: 'warehouse',
+          countryCode: 'GB',
+          isDefault: true,
+          status: 'active'
+        })
+      );
+    } catch {
+      location =
+        (await locRepo.findOne({ where: { businessUnit: { id: bu.id } }, relations: ['businessUnit'] })) ||
+        (await locRepo.findOne({ where: { code }, relations: ['businessUnit'] }));
+    }
   }
   return location;
 }

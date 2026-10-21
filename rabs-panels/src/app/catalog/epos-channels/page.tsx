@@ -140,6 +140,7 @@ export default function EposChannelsPage() {
     generateBarcodes: true
   });
   const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState('');
   const [generatingBarcodes, setGeneratingBarcodes] = useState(false);
   const [generatingEposBarcodes, setGeneratingEposBarcodes] = useState(false);
   const [deletingEpos, setDeletingEpos] = useState(false);
@@ -335,31 +336,64 @@ export default function EposChannelsPage() {
     setExporting(true);
     setExportingMode(mode);
     setExportResult(null);
+    setExportProgress('Starting…');
+    const combined = {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      unchanged: 0,
+      barcodesGenerated: 0,
+      errors: [] as Array<{ sku: string; message: string }>
+    };
     try {
-      const res = await exportToGoodTill({
-        connectionId: selectedConnId,
-        organizationId,
-        exportAll: selectedItemIds.size === 0,
-        catalogItemIds: selectedItemIds.size ? Array.from(selectedItemIds) : undefined,
-        mode,
-        duplicateMode: mode === 'sync' ? 'update' : 'skip',
-        vatCodeId: exportOptions.vatCodeId,
-        priceListId: exportOptions.priceListId || undefined,
-        warehouseId: exportOptions.warehouseId || undefined,
-        generateBarcodes: exportOptions.generateBarcodes
-      });
-      setExportResult(res.data);
+      const batchSize = 25;
+      let offset = 0;
+      let hasMore = true;
+      while (hasMore) {
+        setExportProgress(
+          selectedItemIds.size
+            ? `Pushing selected products from ${offset + 1}…`
+            : `Pushing catalog batch starting at ${offset + 1}…`
+        );
+        const res = await exportToGoodTill({
+          connectionId: selectedConnId,
+          organizationId,
+          exportAll: selectedItemIds.size === 0,
+          catalogItemIds: selectedItemIds.size ? Array.from(selectedItemIds) : undefined,
+          mode,
+          duplicateMode: mode === 'sync' ? 'update' : 'skip',
+          vatCodeId: exportOptions.vatCodeId,
+          priceListId: exportOptions.priceListId || undefined,
+          warehouseId: exportOptions.warehouseId || undefined,
+          generateBarcodes: exportOptions.generateBarcodes,
+          batchOffset: offset,
+          batchLimit: batchSize
+        });
+        combined.created += res.data.created ?? 0;
+        combined.updated += res.data.updated ?? 0;
+        combined.skipped += res.data.skipped ?? 0;
+        combined.unchanged += res.data.unchanged ?? 0;
+        combined.barcodesGenerated += res.data.barcodesGenerated ?? 0;
+        if (res.data.errors?.length) combined.errors.push(...res.data.errors);
+        const processed = res.data.processed ?? batchSize;
+        const total = res.data.totalMatching ?? offset + processed;
+        offset += processed;
+        hasMore = Boolean(res.data.hasMore);
+        setExportProgress(`Processed ${Math.min(offset, total)} of ${total}`);
+        if (!hasMore || processed === 0) break;
+      }
+      setExportResult(combined);
       if (mode === 'push') {
         toast.success(
-          `Push complete: ${res.data.created} created, ${res.data.skipped} already in EPOS`
+          `Push complete: ${combined.created} created, ${combined.skipped} already in EPOS`
         );
       } else {
         toast.success(
-          `Sync complete: ${res.data.created} added, ${res.data.updated} updated, ${res.data.unchanged ?? 0} unchanged`
+          `Sync complete: ${combined.created} added, ${combined.updated} updated, ${combined.unchanged} unchanged`
         );
       }
-      if (res.data.errors?.length) {
-        toast.error(`${res.data.errors.length} error(s): ${res.data.errors[0]?.message}`);
+      if (combined.errors.length) {
+        toast.error(`${combined.errors.length} error(s): ${combined.errors[0]?.message}`);
       }
       if (activeTab === 'browse') loadBrowse();
     } catch (e: any) {
@@ -367,6 +401,7 @@ export default function EposChannelsPage() {
     } finally {
       setExporting(false);
       setExportingMode(null);
+      setExportProgress('');
     }
   }
 
@@ -1082,6 +1117,9 @@ export default function EposChannelsPage() {
                       ? `Sync selected (${selectedItemIds.size})`
                       : 'Sync ERP → EPOS'}
                   </button>
+                  {exportProgress && (
+                    <p className="text-sm text-muted-foreground w-full">{exportProgress}</p>
+                  )}
                 </div>
               </div>
 

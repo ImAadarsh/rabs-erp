@@ -21,7 +21,7 @@ import { RichDataTable } from '@/components/rich-data-table';
 import { useSession } from '@/hooks/use-session';
 import { useRoleCheck } from '@/hooks/use-role-check';
 import { ColumnDef } from '@tanstack/react-table';
-import { Pencil, Trash2, Plus, X, Upload, Loader2, ImageIcon, Star } from 'lucide-react';
+import { Pencil, Trash2, Plus, X, Upload, Loader2, ImageIcon, Star, Download } from 'lucide-react';
 import Link from 'next/link';
 
 type CatalogItem = {
@@ -222,7 +222,7 @@ function ProductFields({
               required
             />
           </label>
-          {field('Barcode / UPC', 'barcode', { placeholder: 'EAN-13 / UPC-A' })}
+          {field('Barcode / UPC', 'barcode', { placeholder: 'Optional — any barcode, EAN-13 or UPC-A' })}
           <label className="text-sm col-span-2">
             Product Name *
             <input
@@ -359,14 +359,15 @@ export default function CatalogItemsPage() {
   const [editForm, setEditForm] = useState<ProductForm>(emptyForm);
   const [confirmDel, setConfirmDel] = useState<CatalogItem | null>(null);
   const [media, setMedia] = useState<any[]>([]);
+  const [createImages, setCreateImages] = useState<File[]>([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [saving, setSaving] = useState(false);
 
   async function refreshItems() {
-    const res = await listCatalogItems({
-      organizationId: session?.user?.organizationId,
-      limit: 500
-    });
+    const isSuper = session?.user?.roles?.includes('SUPER_ADMIN');
+    const res = await listCatalogItems(
+      isSuper ? undefined : { organizationId: session?.user?.organizationId }
+    );
     setItems(res.data || []);
   }
 
@@ -378,8 +379,9 @@ export default function CatalogItemsPage() {
     }
     (async () => {
       try {
+        const isSuper = session?.user?.roles?.includes('SUPER_ADMIN');
         const [itemsRes, orgsRes, taxCodesRes] = await Promise.all([
-          listCatalogItems({ organizationId: session?.user?.organizationId, limit: 500 }),
+          listCatalogItems(isSuper ? undefined : { organizationId: session?.user?.organizationId }),
           listOrganizations(),
           listTaxCodes({ organizationId: session?.user?.organizationId })
         ]);
@@ -412,6 +414,18 @@ export default function CatalogItemsPage() {
     listBusinessUnits(form.organizationId)
       .then((res) => setBusinessUnits(res.data || []))
       .catch(() => setBusinessUnits([]));
+    listTaxCodes({ organizationId: form.organizationId })
+      .then((res) => {
+        const codes = res.data || [];
+        setTaxCodes(codes);
+        setForm((prev) => {
+          if (prev.taxCodeId && !codes.some((tc: { id: string }) => String(tc.id) === String(prev.taxCodeId))) {
+            return { ...prev, taxCodeId: '' };
+          }
+          return prev;
+        });
+      })
+      .catch(() => setTaxCodes([]));
   }, [form.organizationId]);
 
   async function loadMedia(catalogItemId: string) {
@@ -470,15 +484,28 @@ export default function CatalogItemsPage() {
     }
     setSaving(true);
     try {
-      await createCatalogItem({
+      const created = await createCatalogItem({
         organizationId: form.organizationId,
         businessUnitId: form.businessUnitId || undefined,
         ...buildPayload(form)
       });
+      let failedImages = 0;
+      for (const [i, file] of createImages.entries()) {
+        try {
+          await createProductMedia(
+            { catalogItemId: created.data.id, type: 'image', position: i, isPrimary: i === 0 },
+            file
+          );
+        } catch {
+          failedImages += 1;
+        }
+      }
       await refreshItems();
       setShowCreate(false);
       setForm({ ...emptyForm, organizationId: session.user.organizationId || '' });
+      setCreateImages([]);
       toast.success('Catalog item created');
+      if (failedImages) toast.error(`${failedImages} image(s) failed to upload — add them from Edit`);
     } catch (e: any) {
       toast.error(saveErrorMessage(e, 'Create failed'));
     } finally {
@@ -774,6 +801,28 @@ export default function CatalogItemsPage() {
                 </p>
               </div>
               <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn btn-outline inline-flex items-center gap-2"
+                  onClick={() => {
+                    const cols = ['SKU', 'Name', 'Barcode', 'Category', 'Brand', 'UOM', 'Selling Price', 'Tax', 'Status'];
+                    const rows = items.map((it) => [
+                      it.sku, it.name, it.barcode || '', it.category || '', it.brand || '', it.uom || '',
+                      it.sellingPrice ?? '', it.taxCode ? `${Math.round(Number(it.taxCode.rate) * 100)}%` : '', it.status
+                    ]);
+                    const csv = [cols, ...rows]
+                      .map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(','))
+                      .join('\n');
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `rabs-catalog-${new Date().toISOString().slice(0, 10)}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  }}
+                >
+                  <Download className="h-4 w-4" /> Export
+                </button>
                 <Link href="/catalog/inventory-import" className="btn btn-outline inline-flex items-center gap-2">
                   <Upload className="h-4 w-4" /> Import Excel
                 </Link>
@@ -811,6 +860,48 @@ export default function CatalogItemsPage() {
                       businessUnits={businessUnits}
                       taxCodes={taxCodes}
                     />
+                    <div className="border-t pt-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-semibold inline-flex items-center gap-2">
+                          <ImageIcon size={16} /> Product images
+                        </h4>
+                        <label className="btn btn-outline text-xs inline-flex items-center gap-1 cursor-pointer">
+                          <Upload size={14} /> Add images
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              const files = Array.from(e.target.files ?? []);
+                              setCreateImages((prev) => [...prev, ...files]);
+                              e.target.value = '';
+                            }}
+                          />
+                        </label>
+                      </div>
+                      {createImages.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Optional — select one or more images; the first becomes the primary image. Click a thumbnail to view it.</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {createImages.map((f, i) => {
+                            const url = URL.createObjectURL(f);
+                            return (
+                              <div key={`${f.name}-${i}`} className="relative w-20 h-20 rounded-lg overflow-hidden border">
+                                {i === 0 && (
+                                  <span className="absolute left-1 top-1 z-10 rounded bg-black/70 px-1 text-[10px] text-white">Primary</span>
+                                )}
+                                <button type="button" className="absolute right-0 top-0 z-10 bg-black/60 text-white p-0.5" onClick={() => setCreateImages((prev) => prev.filter((_, idx) => idx !== i))}>
+                                  <X size={12} />
+                                </button>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={url} alt={f.name} className="h-full w-full object-cover cursor-zoom-in" onClick={() => window.open(url, '_blank')} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                     <div className="flex justify-end gap-3 pt-4 border-t">
                       <button type="button" onClick={() => setShowCreate(false)} className="btn btn-outline">
                         Cancel

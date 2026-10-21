@@ -25,6 +25,38 @@ const sheetFieldsSchema = {
   expiryDate: z.string().optional()
 };
 
+/** Use the tax code when it belongs to this org. Otherwise reuse or copy the same rate onto the org. */
+async function resolveTaxCodeForOrg(orgId: string, taxCodeId: string): Promise<TaxCode | null> {
+  const tcRepo = AppDataSource.getRepository(TaxCode);
+  const taxCode = await tcRepo.findOne({ where: { id: taxCodeId }, relations: ['organization'] });
+  if (!taxCode) return null;
+  if (String(taxCode.organization?.id) === String(orgId)) return taxCode;
+
+  const sameCode = await tcRepo.findOne({ where: { organization: { id: orgId }, code: taxCode.code } });
+  if (sameCode) return sameCode;
+
+  const rate = Number(taxCode.rate);
+  const sameRate = await tcRepo
+    .createQueryBuilder('tc')
+    .where('tc.organization_id = :orgId', { orgId })
+    .andWhere('ABS(tc.rate - :rate) < 0.0001', { rate })
+    .getOne();
+  if (sameRate) return sameRate;
+
+  return tcRepo.save(
+    tcRepo.create({
+      organization: { id: orgId } as Organization,
+      code: taxCode.code.slice(0, 50),
+      name: taxCode.name,
+      rate: taxCode.rate,
+      countryCode: taxCode.countryCode,
+      description: taxCode.description,
+      isDefault: false,
+      status: 'active'
+    })
+  );
+}
+
 /** Keep sheet values that have no dedicated column inside attributes JSON. */
 function mergeSheetAttributes(
   base: Record<string, any> | null | undefined,
@@ -228,12 +260,8 @@ export class CatalogItemsController {
 
     let taxCode = null;
     if (parsed.data.taxCodeId) {
-      const tcRepo = AppDataSource.getRepository(TaxCode);
-      taxCode = await tcRepo.findOne({ 
-        where: { id: parsed.data.taxCodeId },
-        relations: ['organization']
-      });
-      if (!taxCode || taxCode.organization.id !== org.id) {
+      taxCode = await resolveTaxCodeForOrg(org.id, parsed.data.taxCodeId);
+      if (!taxCode) {
         res.status(400).json({ error: { message: 'Invalid taxCodeId' } });
         return;
       }
@@ -286,6 +314,7 @@ export class CatalogItemsController {
         expiryDate: parsed.data.expiryDate
       });
     } catch (err) {
+      await repo.remove(item).catch(() => undefined);
       res.status(400).json({
         error: { message: err instanceof Error ? err.message : 'Failed to save inventory fields' }
       });
@@ -360,12 +389,8 @@ export class CatalogItemsController {
     // Update tax code if provided
     if (parsed.data.taxCodeId !== undefined) {
       if (parsed.data.taxCodeId) {
-        const tcRepo = AppDataSource.getRepository(TaxCode);
-        const taxCode = await tcRepo.findOne({ 
-          where: { id: parsed.data.taxCodeId },
-          relations: ['organization']
-        });
-        if (!taxCode || taxCode.organization.id !== item.organization.id) {
+        const taxCode = await resolveTaxCodeForOrg(item.organization.id, parsed.data.taxCodeId);
+        if (!taxCode) {
           res.status(400).json({ error: { message: 'Invalid taxCodeId' } });
           return;
         }

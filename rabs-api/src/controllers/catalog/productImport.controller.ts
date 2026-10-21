@@ -103,7 +103,8 @@ const SOURCE_MAP: Record<
     channel: 'custom',
     label: 'Custom CSV',
     format: 'csv',
-    available: false
+    available: true,
+    hint: 'Title/Name, SKU, Price, Stock/Quantity, optional Description, Category, Images'
   }
 };
 

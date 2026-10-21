@@ -279,6 +279,8 @@ export class GoodTillChannelsController {
       priceListId?: string;
       warehouseId?: string;
       generateBarcodes?: boolean;
+      batchOffset?: number;
+      batchLimit?: number;
     };
 
     if (!body.organizationId) {
@@ -318,7 +320,11 @@ export class GoodTillChannelsController {
         qb.andWhere('ci.id IN (:...ids)', { ids: body.catalogItemIds });
       }
 
-      const items = await qb.getMany();
+      const allItems = await qb.getMany();
+      const batchOffset = Math.max(0, Number(body.batchOffset ?? 0) || 0);
+      const rawLimit = body.batchLimit != null ? Number(body.batchLimit) : NaN;
+      const batchLimit = Number.isFinite(rawLimit) ? Math.min(Math.max(1, rawLimit), 80) : undefined;
+      const items = batchLimit != null ? allItems.slice(batchOffset, batchOffset + batchLimit) : allItems;
       const variantIds = items.flatMap((ci) => ci.variants.map((v) => v.id));
 
       const barcodeRepo = AppDataSource.getRepository(Barcode);
@@ -440,7 +446,15 @@ export class GoodTillChannelsController {
         }
       }
 
-      res.json({ data: result });
+      res.json({
+        data: {
+          ...result,
+          processed: items.length,
+          totalMatching: allItems.length,
+          batchOffset,
+          hasMore: batchLimit != null ? batchOffset + items.length < allItems.length : false
+        }
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Export failed';
       res.status(500).json({ error: { message } });

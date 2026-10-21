@@ -16,11 +16,17 @@ import { Supplier } from '@entities/inventory/Supplier.js';
 import { StockItem } from '@entities/inventory/StockItem.js';
 import type { InventorySheetRow } from './inventoryExcelParser.js';
 
+export type InventoryImportRow = InventorySheetRow & {
+  additionalBarcodes?: string[];
+  attributes?: Record<string, unknown>;
+};
+
 export type InventoryImportOptions = {
   organizationId: string;
   businessUnitId?: string;
   duplicateMode: 'skip' | 'update';
   importInventory?: boolean;
+  tags?: string[];
 };
 
 export type InventoryImportResult = {
@@ -47,6 +53,10 @@ function slugCode(input: string, max = 40): string {
   return base || 'AUTO';
 }
 
+function barcodeType(code: string): 'UPC' | 'EAN' {
+  return code.replace(/\D/g, '').length === 12 ? 'UPC' : 'EAN';
+}
+
 function parseExpiry(value?: string | null): Date | null {
   if (!value) return null;
   const d = new Date(value);
@@ -54,7 +64,7 @@ function parseExpiry(value?: string | null): Date | null {
 }
 
 export async function runInventoryExcelImport(
-  rows: InventorySheetRow[],
+  rows: InventoryImportRow[],
   options: InventoryImportOptions
 ): Promise<InventoryImportResult> {
   const result: InventoryImportResult = {
@@ -271,12 +281,19 @@ export async function runInventoryExcelImport(
 
         const taxCode = await resolveTaxCode(row.taxPercent);
         const attrs: Record<string, unknown> = {
-          ...(item?.attributes ?? {})
+          ...(item?.attributes ?? {}),
+          ...(row.attributes ?? {})
         };
         if (row.supplierName) attrs.supplierName = row.supplierName;
         if (row.warehouseName) attrs.warehouseName = row.warehouseName;
         if (row.binCode) attrs.binCode = row.binCode;
         if (row.lotNumber) attrs.lotNumber = row.lotNumber;
+        if (row.expiryDate) attrs.expiryDate = row.expiryDate;
+        if (row.dateAdded) attrs.dateAdded = row.dateAdded;
+        if (options.tags?.length) {
+          const current = Array.isArray(attrs.tags) ? (attrs.tags as string[]) : [];
+          attrs.tags = [...new Set([...current, ...options.tags])];
+        }
 
         if (!item) {
           item = catRepo.create({
@@ -348,15 +365,18 @@ export async function runInventoryExcelImport(
           await varRepo.save(variant);
         }
 
-        if (row.barcode) {
-          const existingBarcode = await barRepo.findOne({ where: { barcode: row.barcode } });
+        const barcodes = [row.barcode, ...(row.additionalBarcodes ?? [])].filter(
+          (code, idx, all): code is string => !!code && all.indexOf(code) === idx
+        );
+        for (const [idx, code] of barcodes.entries()) {
+          const existingBarcode = await barRepo.findOne({ where: { barcode: code } });
           if (!existingBarcode) {
             await barRepo.save(
               barRepo.create({
                 variant,
-                barcode: row.barcode,
-                type: row.barcode.replace(/\D/g, '').length === 12 ? 'UPC' : 'EAN',
-                isPrimary: true
+                barcode: code,
+                type: barcodeType(code),
+                isPrimary: idx === 0
               })
             );
             result.barcodesCreated++;
