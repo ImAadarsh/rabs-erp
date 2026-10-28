@@ -1,10 +1,11 @@
 import { In, Not } from 'typeorm';
 import { AppDataSource } from '@config/data-source.js';
 import {
-  RabsJob, RabsMeasurement, RabsRoom, RabsRoomAccessory, RabsProduct, RabsLabourRule, RabsQuote, RabsQuoteLine
+  RabsJob, RabsMeasurement, RabsRoom, RabsRoomAccessory, RabsProduct, RabsLabourRule, RabsQuote, RabsQuoteLine, RabsPriceAudit, RabsCustomer
 } from '@entities/rabs/RabsEntities.js';
 import { Ctx, bad, conflict, notFound, loadJob, nextNumber, addTimeline, recomputeJob, requireCap, getSettings } from './rabsCore.js';
 import { productQuantity, labourCharge, quoteTotals, depositRequired, round2, type RoomDims } from './rabsCalc.js';
+import { notifyEmail } from './rabsNotify.js';
 
 const R = {
   jobs: () => AppDataSource.getRepository(RabsJob),
@@ -271,7 +272,52 @@ export async function updateQuote(ctx: Ctx, id: string, patch: QuotePatch) {
   return getQuote(ctx, q.id);
 }
 
-export async function addQuoteLine(ctx: Ctx, id: string, input: { description: string; qty: number; unitPrice: number; unitCost?: number; unit?: string; roomId?: string | null }) {
+/** Enforce catalogue min sell; allow admin override with audited reason. */
+async function assertMinSell(
+  ctx: Ctx,
+  productId: string | null | undefined,
+  unitPrice: number,
+  overrideReason?: string | null,
+  label?: string
+) {
+  if (!productId) return;
+  const p = await R.products().findOne({ where: { id: productId, organizationId: ctx.orgId } });
+  if (!p || p.minSellPrice == null) return;
+  const min = Number(p.minSellPrice);
+  if (!(unitPrice < min)) return;
+  const reason = overrideReason?.trim();
+  if (!reason) {
+    throw bad(
+      `${label || p.name}: £${unitPrice.toFixed(2)} is below the minimum sell price of £${min.toFixed(2)}. Enter an override reason (admin) or raise the price.`
+    );
+  }
+  requireCap(ctx, 'admin');
+  await AppDataSource.getRepository(RabsPriceAudit).insert({
+    organizationId: ctx.orgId,
+    entity: 'quote_line',
+    entityId: productId,
+    entityLabel: (label || p.name).slice(0, 255),
+    field: 'min_sell_override',
+    oldValue: String(min),
+    newValue: `${unitPrice}|${reason}`.slice(0, 255),
+    changedBy: ctx.userId
+  });
+}
+
+export async function addQuoteLine(
+  ctx: Ctx,
+  id: string,
+  input: {
+    description?: string;
+    qty: number;
+    unitPrice?: number;
+    unitCost?: number;
+    unit?: string;
+    roomId?: string | null;
+    productId?: string | null;
+    overrideReason?: string | null;
+  }
+) {
   requireCap(ctx, 'quotes');
   const q = await loadQuote(ctx, id);
   assertDraft(q);
@@ -281,20 +327,38 @@ export async function addQuoteLine(ctx: Ctx, id: string, input: { description: s
     if (!room) throw bad('Room not found on this job');
     roomName = room.name;
   }
+  let productId: string | null = input.productId || null;
+  let description = (input.description || '').trim();
+  let unit = input.unit || 'item';
+  let unitCost = round2(input.unitCost ?? 0);
+  let unitPrice = input.unitPrice !== undefined && input.unitPrice !== null ? round2(input.unitPrice) : NaN;
+  let lineType: RabsQuoteLine['lineType'] = 'custom';
+  if (productId) {
+    const p = await R.products().findOne({ where: { id: productId, organizationId: ctx.orgId, isActive: true } });
+    if (!p) throw notFound('Product');
+    description = description || `${p.name}${p.colour ? ` — ${p.colour}` : ''}`;
+    unit = p.unit;
+    unitCost = Number(p.costPrice);
+    if (Number.isNaN(unitPrice)) unitPrice = Number(p.sellPrice);
+    lineType = p.kind === 'accessory' ? 'accessory' : p.kind === 'furniture' ? 'custom' : 'product';
+    await assertMinSell(ctx, p.id, unitPrice, input.overrideReason, p.name);
+  } else if (Number.isNaN(unitPrice)) {
+    throw bad('Unit price is required for custom lines');
+  }
   const max = Number((await AppDataSource.query('SELECT COALESCE(MAX(sort_order),0)+1 n FROM rabs_quote_lines WHERE quote_id = ?', [q.id]))[0].n);
   await R.lines().insert({
     quoteId: q.id,
     roomId: input.roomId || null,
     roomName,
-    lineType: 'custom',
-    productId: null,
-    description: input.description.trim(),
+    lineType,
+    productId,
+    description,
     qty: round2(input.qty),
-    unit: input.unit || 'item',
-    unitCost: round2(input.unitCost ?? 0),
-    unitPrice: round2(input.unitPrice),
-    lineCost: round2(input.qty * (input.unitCost ?? 0)),
-    lineTotal: round2(input.qty * input.unitPrice),
+    unit,
+    unitCost,
+    unitPrice,
+    lineCost: round2(input.qty * unitCost),
+    lineTotal: round2(input.qty * unitPrice),
     meta: null as any,
     sortOrder: max
   });
@@ -302,7 +366,12 @@ export async function addQuoteLine(ctx: Ctx, id: string, input: { description: s
   return getQuote(ctx, q.id);
 }
 
-export async function updateQuoteLine(ctx: Ctx, id: string, lineId: string, input: { qty?: number; unitPrice?: number; description?: string }) {
+export async function updateQuoteLine(
+  ctx: Ctx,
+  id: string,
+  lineId: string,
+  input: { qty?: number; unitPrice?: number; description?: string; overrideReason?: string | null }
+) {
   requireCap(ctx, 'quotes');
   const q = await loadQuote(ctx, id);
   assertDraft(q);
@@ -311,6 +380,9 @@ export async function updateQuoteLine(ctx: Ctx, id: string, lineId: string, inpu
   const qty = input.qty !== undefined ? round2(input.qty) : line.qty;
   const unitPrice = input.unitPrice !== undefined ? round2(input.unitPrice) : line.unitPrice;
   if (input.unitPrice !== undefined && input.unitPrice !== line.unitPrice) requireCap(ctx, 'view_prices');
+  if (input.unitPrice !== undefined && input.unitPrice !== line.unitPrice) {
+    await assertMinSell(ctx, line.productId, unitPrice, input.overrideReason, line.description);
+  }
   await R.lines().update(
     { id: line.id },
     { qty, unitPrice, description: input.description?.trim() || line.description, lineTotal: round2(qty * unitPrice), lineCost: round2(qty * line.unitCost) }
@@ -334,11 +406,42 @@ export async function sendQuote(ctx: Ctx, id: string) {
   const q = await loadQuote(ctx, id);
   if (q.status === 'sent') return q;
   assertDraft(q);
-  const lines = await R.lines().count({ where: { quoteId: q.id } });
-  if (!lines) throw bad('The quotation has no lines');
+  const lines = await R.lines().find({ where: { quoteId: q.id } });
+  if (!lines.length) throw bad('The quotation has no lines');
+  // Block send if any catalogue line is still below min without an override audit for this session price
+  for (const line of lines) {
+    if (!line.productId) continue;
+    const p = await R.products().findOne({ where: { id: line.productId } });
+    if (!p || p.minSellPrice == null) continue;
+    if (Number(line.unitPrice) >= Number(p.minSellPrice)) continue;
+    const overrides = await AppDataSource.getRepository(RabsPriceAudit).find({
+      where: { organizationId: ctx.orgId, entity: 'quote_line', entityId: line.productId, field: 'min_sell_override' },
+      order: { id: 'DESC' },
+      take: 20
+    });
+    const ok = overrides.some((o) => Number(String(o.newValue || '').split('|')[0]) === Number(line.unitPrice));
+    if (!ok) {
+      throw bad(`${line.description} is below minimum sell (£${Number(p.minSellPrice).toFixed(2)}). Raise the price or record an admin override.`);
+    }
+  }
   await R.quotes().update({ id: q.id }, { status: 'sent', sentAt: new Date() });
   await addTimeline(ctx, q.jobId, 'quote', `Quotation ${q.quoteNumber} v${q.version} sent to customer (£${q.total.toFixed(2)})`);
   await recomputeJob(ctx, q.jobId);
+
+  const job = await R.jobs().findOne({ where: { id: q.jobId } });
+  if (job) {
+    const customer = await AppDataSource.getRepository(RabsCustomer).findOne({ where: { id: job.rabsCustomerId as any } });
+    const mail = await notifyEmail({
+      to: customer?.email,
+      subject: `Your quotation ${q.quoteNumber}`,
+      html: `<p>Hi ${customer?.name || 'there'},</p><p>Your quotation <strong>${q.quoteNumber}</strong> for <strong>£${Number(q.total).toFixed(2)}</strong> is ready.</p><p>Please reply or use the customer portal to review it.</p>`,
+      text: `Your quotation ${q.quoteNumber} for £${Number(q.total).toFixed(2)} is ready.`
+    });
+    if (mail.sent) await addTimeline(ctx, q.jobId, 'quote', `Quote email sent to ${customer?.email}`);
+    else if (mail.reason && !mail.reason.includes('SMTP not configured') && !mail.reason.includes('No email')) {
+      await addTimeline(ctx, q.jobId, 'quote', `Quote email not sent: ${mail.reason}`);
+    }
+  }
   return R.quotes().findOneOrFail({ where: { id: q.id } });
 }
 

@@ -8,8 +8,11 @@ import * as Q from '@services/rabs/rabsQuotes.js';
 import * as O from '@services/rabs/rabsOps.js';
 import * as V from '@services/rabs/rabsViews.js';
 import * as A from '@services/rabs/rabsAdmin.js';
+import { rabsPortalRouter } from './rabsPortal.js';
 
 export const rabsRouter = Router();
+/** Customer portal (OTP) — no staff JWT. */
+rabsRouter.use('/portal', rabsPortalRouter);
 rabsRouter.use(authMiddleware);
 
 const photoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 12 } });
@@ -157,6 +160,7 @@ const productSchema = z.object({
   wastagePercent: z.coerce.number().min(0).max(50).optional(),
   costPrice: money(100000),
   sellPrice: money(100000),
+  minSellPrice: money(100000).optional().nullable(),
   accessoryBasis: z.enum(['area', 'perimeter', 'door', 'each']).optional().nullable(),
   accessoryFactor: z.coerce.number().min(0).max(100).optional().nullable(),
   appliesTo: z.array(z.string().max(60)).max(20).optional().nullable(),
@@ -231,6 +235,28 @@ rabsRouter.post('/jobs/:id/measurement', h(async (ctx, req) => J.startMeasuremen
 rabsRouter.post('/jobs/:id/quotes', h(async (ctx, req) => Q.createQuoteFromMeasurement(ctx, id(req)), 201));
 rabsRouter.post('/jobs/:id/convert', h(async (ctx, req) => (await Q.convertToJob(ctx, id(req)), V.jobAggregate(ctx, id(req)))));
 rabsRouter.post('/jobs/:id/payments', h(async (ctx, req) => (await O.recordPayment(ctx, id(req), parse(paymentSchema, req.body)), V.jobAggregate(ctx, id(req))), 201));
+rabsRouter.get('/jobs/:id/payment-reminders', h((ctx, req) => O.listPaymentReminders(ctx, id(req))));
+rabsRouter.post(
+  '/jobs/:id/payment-reminders',
+  h(
+    (ctx, req) =>
+      O.createPaymentReminder(
+        ctx,
+        id(req),
+        parse(
+          z.object({
+            kind: z.enum(['deposit', 'balance', 'overdue']).optional(),
+            channel: z.enum(['email', 'sms', 'call', 'note']).optional(),
+            dueDate: optStr(10),
+            notes: optStr(2000),
+            send: z.boolean().optional()
+          }),
+          req.body
+        )
+      ),
+    201
+  )
+);
 rabsRouter.post('/jobs/:id/materials/check', h(async (ctx, req) => (await O.checkMaterials(ctx, id(req)), V.jobAggregate(ctx, id(req)))));
 rabsRouter.post('/jobs/:id/bookings', h(async (ctx, req) => (await O.bookWork(ctx, id(req), parse(bookingSchema, req.body)), V.jobAggregate(ctx, id(req))), 201));
 rabsRouter.post('/jobs/:id/invoice', h(async (ctx, req) => (await O.generateInvoice(ctx, id(req)), V.jobAggregate(ctx, id(req)))));
@@ -275,10 +301,46 @@ rabsRouter.patch(
 rabsRouter.post(
   '/quotes/:id/lines',
   h((ctx, req) =>
-    Q.addQuoteLine(ctx, id(req), parse(z.object({ description: z.string().trim().min(2, 'is required').max(255), qty: z.coerce.number().min(0.01).max(10000), unitPrice: z.coerce.number().min(-100000).max(100000), unitCost: money(100000).optional(), unit: optStr(20).transform((v) => v || undefined), roomId: idStr.optional().nullable() }), req.body)),
+    Q.addQuoteLine(
+      ctx,
+      id(req),
+      parse(
+        z.object({
+          description: z.string().trim().max(255).optional(),
+          qty: z.coerce.number().min(0.01).max(10000),
+          unitPrice: z.coerce.number().min(-100000).max(100000).optional(),
+          unitCost: money(100000).optional(),
+          unit: optStr(20).transform((v) => v || undefined),
+          roomId: idStr.optional().nullable(),
+          productId: idStr.optional().nullable(),
+          overrideReason: optStr(500)
+        }).refine((b) => Boolean(b.productId) || (b.description && b.description.trim().length >= 2), {
+          message: 'description or productId is required'
+        }),
+        req.body
+      )
+    ),
   201)
 );
-rabsRouter.patch('/quotes/:id/lines/:lineId', h((ctx, req) => Q.updateQuoteLine(ctx, id(req), parseId(req.params.lineId), parse(z.object({ qty: z.coerce.number().min(0.01).max(10000).optional(), unitPrice: z.coerce.number().min(-100000).max(100000).optional(), description: optStr(255).transform((v) => v || undefined) }), req.body))));
+rabsRouter.patch(
+  '/quotes/:id/lines/:lineId',
+  h((ctx, req) =>
+    Q.updateQuoteLine(
+      ctx,
+      id(req),
+      parseId(req.params.lineId),
+      parse(
+        z.object({
+          qty: z.coerce.number().min(0.01).max(10000).optional(),
+          unitPrice: z.coerce.number().min(-100000).max(100000).optional(),
+          description: optStr(255).transform((v) => v || undefined),
+          overrideReason: optStr(500)
+        }),
+        req.body
+      )
+    )
+  )
+);
 rabsRouter.delete('/quotes/:id/lines/:lineId', h((ctx, req) => Q.deleteQuoteLine(ctx, id(req), parseId(req.params.lineId))));
 rabsRouter.post('/quotes/:id/rebuild', h(async (ctx, req) => {
   const { quote } = await Q.getQuote(ctx, id(req));

@@ -102,7 +102,19 @@ export const env = {
   DHL_SHIPPER_CITY: process.env.DHL_SHIPPER_CITY ?? '',
   DHL_SHIPPER_POSTAL: process.env.DHL_SHIPPER_POSTAL ?? '',
   DHL_SHIPPER_COUNTRY: process.env.DHL_SHIPPER_COUNTRY ?? 'GB',
-  DHL_SHIPPER_STATE: process.env.DHL_SHIPPER_STATE ?? ''
+  DHL_SHIPPER_STATE: process.env.DHL_SHIPPER_STATE ?? '',
+
+  // Google Calendar (RABS appointments / bookings) — refresh token from OAuth consent
+  GOOGLE_CALENDAR_REFRESH_TOKEN: process.env.GOOGLE_CALENDAR_REFRESH_TOKEN ?? '',
+  GOOGLE_CALENDAR_ID: process.env.GOOGLE_CALENDAR_ID ?? 'primary',
+
+  // SMS OTP / reminders (optional provider webhook)
+  SMS_PROVIDER_API_KEY: process.env.SMS_PROVIDER_API_KEY ?? '',
+  SMS_PROVIDER_FROM: process.env.SMS_PROVIDER_FROM ?? '',
+  SMS_PROVIDER_URL: process.env.SMS_PROVIDER_URL ?? '',
+
+  // Firebase Cloud Messaging (optional push)
+  FCM_SERVER_KEY: process.env.FCM_SERVER_KEY ?? ''
 };
 
 

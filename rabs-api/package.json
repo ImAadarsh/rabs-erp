@@ -25,9 +25,11 @@
     "migrate:018": "tsx src/scripts/runMigration018.ts",
     "migrate:019": "tsx src/scripts/runMigration019.ts",
     "migrate:020": "tsx src/scripts/runMigration020.ts",
+    "migrate:021": "tsx src/scripts/runMigration021.ts",
     "seed:rabs-workflow": "tsx src/scripts/seedRabsWorkflow.ts",
     "demo:rabs-refresh": "tsx src/scripts/refreshRabsDemo.ts",
     "test:rabs": "tsx src/scripts/testRabsCalc.ts",
+    "test:smtp": "tsx src/scripts/testSmtp.ts",
     "e2e:rabs": "tsx src/scripts/e2eRabsJourney.ts"
   },
   "dependencies": {

@@ -1,7 +1,7 @@
 import { In } from 'typeorm';
 import { AppDataSource } from '@config/data-source.js';
 import {
-  RabsJob, RabsPayment, RabsInvoice, RabsVariation, RabsQuote, RabsQuoteLine, RabsProduct, RabsMaterialItem, RabsBooking, RabsFile
+  RabsJob, RabsPayment, RabsInvoice, RabsVariation, RabsQuote, RabsQuoteLine, RabsProduct, RabsMaterialItem, RabsBooking, RabsFile, RabsPaymentReminder, RabsCustomer
 } from '@entities/rabs/RabsEntities.js';
 import {
   Ctx, HttpError, bad, conflict, notFound, loadJob, nextNumber, addTimeline, recomputeJob, requireCap, storeFile, removeStoredFile, todayISO, dateOnly
@@ -9,6 +9,8 @@ import {
 import { round2, addVat, balanceDue } from './rabsCalc.js';
 import { DEFAULT_CHECKLISTS } from './rabsWorkflow.js';
 import { unitLabel } from './rabsQuotes.js';
+import { notifyEmail, notifySms } from './rabsNotify.js';
+import { upsertCalendarEvent } from './rabsCalendar.js';
 
 const R = {
   jobs: () => AppDataSource.getRepository(RabsJob),
@@ -20,7 +22,9 @@ const R = {
   products: () => AppDataSource.getRepository(RabsProduct),
   materials: () => AppDataSource.getRepository(RabsMaterialItem),
   bookings: () => AppDataSource.getRepository(RabsBooking),
-  files: () => AppDataSource.getRepository(RabsFile)
+  files: () => AppDataSource.getRepository(RabsFile),
+  reminders: () => AppDataSource.getRepository(RabsPaymentReminder),
+  customers: () => AppDataSource.getRepository(RabsCustomer)
 };
 
 const money = (n: number) => `£${n.toFixed(2)}`;
@@ -369,8 +373,102 @@ export async function bookWork(ctx: Ctx, jobId: string, input: BookingInput) {
     const who = input.staffUserId ? (await AppDataSource.query('SELECT first_name f, last_name l FROM users WHERE id = ?', [input.staffUserId]))[0] : null;
     await addTimeline(ctx, job.id, 'booking', `${cap(input.type)} booked for ${date} (${b.slot})${who ? ` with ${[who.f, who.l].filter(Boolean).join(' ')}` : ''}`);
   }
+  try {
+    const cust = await R.customers().findOne({ where: { id: job.rabsCustomerId as any } });
+    const start = new Date(`${date}T${b.slot === 'PM' ? '13:00:00' : b.slot === 'Evening' ? '17:00:00' : '09:00:00'}`);
+    const end = new Date(start.getTime() + (b.slot === 'All day' ? 8 : 4) * 3600_000);
+    const cal = await upsertCalendarEvent({
+      summary: `RABS ${b.type}: ${cust?.name || job.jobNumber}`,
+      description: `Job ${job.jobNumber}\n${b.instructions || ''}`,
+      location: [cust?.addressLine1, cust?.city, cust?.postcode].filter(Boolean).join(', '),
+      startIso: start.toISOString(),
+      endIso: end.toISOString(),
+      existingEventId: b.googleCalendarEventId
+    });
+    if (cal.eventId && cal.eventId !== b.googleCalendarEventId) {
+      await R.bookings().update({ id: b.id }, { googleCalendarEventId: cal.eventId });
+      b = await R.bookings().findOneOrFail({ where: { id: b.id } });
+    }
+    if (cust?.email) {
+      await notifyEmail({
+        to: cust.email,
+        subject: `${cap(b.type)} booked — ${date}`,
+        html: `<p>Hi ${cust.name},</p><p>Your <strong>${b.type}</strong> is booked for <strong>${date}</strong> (${b.slot}).</p>`,
+        text: `Your ${b.type} is booked for ${date} (${b.slot}).`
+      });
+    }
+  } catch (e: any) {
+    console.warn('[bookWork] calendar/notify', e?.message || e);
+  }
+
   await recomputeJob(ctx, job.id);
   return b;
+}
+
+/** Log / send a payment reminder (deposit, balance, overdue). */
+export async function createPaymentReminder(
+  ctx: Ctx,
+  jobId: string,
+  input: {
+    kind?: 'deposit' | 'balance' | 'overdue';
+    channel?: 'email' | 'sms' | 'call' | 'note';
+    dueDate?: string | null;
+    notes?: string | null;
+    send?: boolean;
+  }
+) {
+  requireCap(ctx, 'payments');
+  const job = await loadJob(ctx, jobId);
+  const customer = await R.customers().findOneOrFail({ where: { id: job.rabsCustomerId as any } });
+  const kind = input.kind || (job.paidAmount < job.depositRequired - 0.005 ? 'deposit' : 'balance');
+  const channel = input.channel || 'note';
+  let outcome: string | null = null;
+  let sentAt: Date | null = null;
+
+  if (input.send !== false && (channel === 'email' || channel === 'sms')) {
+    const amount = kind === 'deposit' ? Math.max(0, job.depositRequired - job.paidAmount) : job.balanceDue;
+    const body = `Reminder: ${kind} payment of £${amount.toFixed(2)} is due for job ${job.jobNumber}.`;
+    if (channel === 'email') {
+      const mail = await notifyEmail({
+        to: customer.email,
+        subject: `Payment reminder — ${job.jobNumber}`,
+        html: `<p>Hi ${customer.name},</p><p>${body}</p>${input.notes ? `<p>${input.notes}</p>` : ''}`,
+        text: body
+      });
+      outcome = mail.sent ? 'email_sent' : `email_skipped:${mail.reason || 'failed'}`;
+      if (mail.sent) sentAt = new Date();
+    } else {
+      const sms = await notifySms({ to: customer.phone, body });
+      outcome = sms.sent ? 'sms_sent' : `sms_skipped:${sms.reason || 'failed'}`;
+      if (sms.sent) sentAt = new Date();
+    }
+  } else if (channel === 'call' || channel === 'note') {
+    outcome = input.notes?.trim() || 'logged';
+    sentAt = new Date();
+  }
+
+  const row = await R.reminders().save(
+    R.reminders().create({
+      organizationId: ctx.orgId,
+      jobId: job.id,
+      rabsCustomerId: customer.id,
+      kind,
+      channel,
+      dueDate: input.dueDate || null,
+      sentAt,
+      outcome,
+      notes: input.notes || null,
+      createdBy: ctx.userId
+    })
+  );
+  await addTimeline(ctx, job.id, 'payment', `Payment reminder (${kind}/${channel})${outcome ? `: ${outcome}` : ''}`);
+  return row;
+}
+
+export async function listPaymentReminders(ctx: Ctx, jobId: string) {
+  requireCap(ctx, 'payments', 'reports');
+  await loadJob(ctx, jobId);
+  return R.reminders().find({ where: { jobId, organizationId: ctx.orgId }, order: { id: 'DESC' } });
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);

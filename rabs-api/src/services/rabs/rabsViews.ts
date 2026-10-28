@@ -326,12 +326,42 @@ export async function reportSales(ctx: Ctx, from?: string, to?: string) {
       }
       return o;
     });
+  const byCategoryRaw = await AppDataSource.query(
+    `SELECT COALESCE(p.kind, 'other') kind,
+            CASE
+              WHEN p.kind = 'furniture' THEN 'furniture'
+              WHEN p.kind = 'flooring' OR LOWER(COALESCE(p.category,'')) LIKE '%carpet%' OR LOWER(COALESCE(p.category,'')) LIKE '%vinyl%' OR LOWER(COALESCE(p.category,'')) LIKE '%laminate%' THEN 'carpet_flooring'
+              WHEN p.kind = 'accessory' THEN 'accessory'
+              WHEN p.kind = 'service' THEN 'service'
+              ELSE 'other'
+            END salesGroup,
+            COUNT(DISTINCT q.id) quotes,
+            ROUND(SUM(ql.line_total), 2) gross
+       FROM rabs_quote_lines ql
+       JOIN rabs_quotes q ON q.id = ql.quote_id
+       LEFT JOIN rabs_products p ON p.id = ql.product_id
+      WHERE q.organization_id = ? AND q.status = 'accepted' AND DATE(q.accepted_at) BETWEEN ? AND ?
+      GROUP BY salesGroup, kind
+      ORDER BY gross DESC`,
+    [ctx.orgId, f, t]
+  );
+  const byCategory = byCategoryRaw.map((r: any) => ({
+    salesGroup: r.salesGroup,
+    kind: r.kind,
+    quotes: Number(r.quotes || 0),
+    gross: Number(r.gross || 0)
+  }));
+  const furnitureGross = round2(byCategory.filter((r: any) => r.salesGroup === 'furniture').reduce((s: number, r: any) => s + r.gross, 0));
+  const carpetGross = round2(byCategory.filter((r: any) => r.salesGroup === 'carpet_flooring').reduce((s: number, r: any) => s + r.gross, 0));
+
   const months = n(byMonth);
   return {
     from: f,
     to: t,
     byMonth: months,
     byStaff: n(byStaff),
+    byCategory,
+    split: { furniture: furnitureGross, carpetFlooring: carpetGross },
     totals: {
       quotes: months.reduce((s, m) => s + m.quotes, 0),
       net: round2(months.reduce((s, m) => s + m.net, 0)),
@@ -403,7 +433,10 @@ export async function meta(ctx: Ctx) {
     products: products.map((p) => {
       const o: any = { ...p };
       if (!canCost) delete o.costPrice;
-      if (!canPrice) delete o.sellPrice;
+      if (!canPrice) {
+        delete o.sellPrice;
+        delete o.minSellPrice;
+      }
       return o;
     }),
     categories: [...new Set(products.filter((p) => p.kind !== 'accessory').map((p) => p.category))],

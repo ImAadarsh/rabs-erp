@@ -78,7 +78,7 @@ export async function updateStatuses(ctx: Ctx, items: Array<{ code: string; labe
 
 // ---- Product catalogue ---------------------------------------------------------------
 
-const PRODUCT_AUDITED = ['costPrice', 'sellPrice', 'wastagePercent', 'calcMethod', 'unit', 'rollWidthM', 'packCoverageM2', 'accessoryFactor', 'isActive'];
+const PRODUCT_AUDITED = ['costPrice', 'sellPrice', 'minSellPrice', 'wastagePercent', 'calcMethod', 'unit', 'rollWidthM', 'packCoverageM2', 'accessoryFactor', 'isActive'];
 export type ProductInput = Partial<Omit<RabsProduct, 'id' | 'organizationId' | 'createdAt' | 'updatedAt'>>;
 
 function validateProduct(p: ProductInput & { calcMethod?: string }) {

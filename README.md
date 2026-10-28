@@ -6,6 +6,7 @@ ERP and one-click CRM workflow for **RABS Carpets & Furniture** (enquiry → mea
 | --- | --- | --- |
 | [`rabs-api/`](rabs-api) | Express + TypeORM (MySQL), TypeScript | https://api.rabsinteriors.app |
 | [`rabs-panels/`](rabs-panels) | Next.js (App Router) + Tailwind | https://rabsinteriors.app |
+| [`rabs-mobile/`](rabs-mobile) | Flutter (field / staff / customer + PWA) | build with `flutter build web` |
 
 ## Local development
 

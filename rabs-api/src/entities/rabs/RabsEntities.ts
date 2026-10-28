@@ -72,6 +72,7 @@ export class RabsProduct {
   @dec('wastage_percent', { precision: 6 }) wastagePercent!: number;
   @dec('cost_price') costPrice!: number;
   @dec('sell_price') sellPrice!: number;
+  @dec('min_sell_price', { nullable: true }) minSellPrice!: number | null;
   @Column({ name: 'accessory_basis', type: 'enum', enum: ['area', 'perimeter', 'door', 'each'], nullable: true }) accessoryBasis!: 'area' | 'perimeter' | 'door' | 'each' | null;
   @dec('accessory_factor', { nullable: true, precision: 8, scale: 3 }) accessoryFactor!: number | null;
   @Column({ name: 'applies_to', type: 'json', nullable: true }) appliesTo!: string[] | null;
@@ -174,6 +175,7 @@ export class RabsAppointment {
   @fk('staff_user_id') staffUserId!: string | null;
   @Column({ type: 'text', nullable: true }) notes!: string | null;
   @Column({ type: 'enum', enum: ['booked', 'done', 'cancelled'] }) status!: 'booked' | 'done' | 'cancelled';
+  @Column({ name: 'google_calendar_event_id', type: 'varchar', length: 255, nullable: true }) googleCalendarEventId!: string | null;
   @fk('created_by') createdBy!: string | null;
   @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
   @UpdateDateColumn({ name: 'updated_at' }) updatedAt!: Date;
@@ -369,6 +371,7 @@ export class RabsBooking {
   @Column({ type: 'varchar', length: 20 }) slot!: string;
   @fk('staff_user_id') staffUserId!: string | null;
   @Column({ type: 'enum', enum: ['booked', 'in_progress', 'complete', 'cancelled'] }) status!: 'booked' | 'in_progress' | 'complete' | 'cancelled';
+  @Column({ name: 'google_calendar_event_id', type: 'varchar', length: 255, nullable: true }) googleCalendarEventId!: string | null;
   @Column({ type: 'text', nullable: true }) instructions!: string | null;
   @Column({ type: 'json', nullable: true }) checklist!: Array<{ label: string; done: boolean }> | null;
   @Column({ name: 'signed_name', type: 'varchar', length: 160, nullable: true }) signedName!: string | null;
@@ -394,8 +397,24 @@ export class RabsTimeline {
   @CreateDateColumn({ name: 'created_at', precision: 3 }) createdAt!: Date;
 }
 
+@Entity({ name: 'rabs_payment_reminders' })
+export class RabsPaymentReminder {
+  @PrimaryGeneratedColumn({ type: 'bigint', unsigned: true }) id!: string;
+  @fk('organization_id', false) organizationId!: string;
+  @fk('job_id', false) jobId!: string;
+  @fk('rabs_customer_id', false) rabsCustomerId!: string;
+  @Column({ type: 'enum', enum: ['deposit', 'balance', 'overdue'] }) kind!: 'deposit' | 'balance' | 'overdue';
+  @Column({ type: 'enum', enum: ['email', 'sms', 'call', 'note'] }) channel!: 'email' | 'sms' | 'call' | 'note';
+  @Column({ name: 'due_date', type: 'date', nullable: true }) dueDate!: string | null;
+  @Column({ name: 'sent_at', type: 'datetime', nullable: true }) sentAt!: Date | null;
+  @Column({ type: 'varchar', length: 255, nullable: true }) outcome!: string | null;
+  @Column({ type: 'text', nullable: true }) notes!: string | null;
+  @fk('created_by') createdBy!: string | null;
+  @CreateDateColumn({ name: 'created_at' }) createdAt!: Date;
+}
+
 export const RABS_ENTITIES = [
   RabsSettings, RabsStatus, RabsProduct, RabsLabourRule, RabsPriceAudit, RabsCustomer, RabsJob,
   RabsAppointment, RabsMeasurement, RabsRoom, RabsRoomAccessory, RabsFile, RabsQuote, RabsQuoteLine,
-  RabsVariation, RabsInvoice, RabsPayment, RabsMaterialItem, RabsBooking, RabsTimeline
+  RabsVariation, RabsInvoice, RabsPayment, RabsMaterialItem, RabsBooking, RabsTimeline, RabsPaymentReminder
 ];

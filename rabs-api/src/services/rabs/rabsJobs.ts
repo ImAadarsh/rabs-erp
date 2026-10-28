@@ -245,8 +245,34 @@ export async function createAppointment(ctx: Ctx, jobId: string, input: Appointm
   );
   if (input.staffUserId && !job.surveyorUserId) await R.jobs().update({ id: job.id }, { surveyorUserId: input.staffUserId });
   await addTimeline(ctx, job.id, 'appointment', `Appointment booked for ${when.toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'medium', timeStyle: 'short' })} (${appt.purpose})`);
+
+  try {
+    const { upsertCalendarEvent } = await import('./rabsCalendar.js');
+    const { notifyEmail } = await import('./rabsNotify.js');
+    const end = new Date(when.getTime() + (appt.durationMin || 60) * 60_000);
+    const cust = await R.customers().findOne({ where: { id: job.rabsCustomerId as any } });
+    const cal = await upsertCalendarEvent({
+      summary: `RABS ${appt.purpose}: ${cust?.name || job.jobNumber}`,
+      description: `Job ${job.jobNumber}\n${appt.notes || ''}`,
+      location: [cust?.addressLine1, cust?.city, cust?.postcode].filter(Boolean).join(', '),
+      startIso: when.toISOString(),
+      endIso: end.toISOString()
+    });
+    if (cal.eventId) await R.appts().update({ id: appt.id }, { googleCalendarEventId: cal.eventId });
+    if (cust?.email) {
+      await notifyEmail({
+        to: cust.email,
+        subject: `Appointment confirmed — ${when.toLocaleString('en-GB', { timeZone: 'Europe/London' })}`,
+        html: `<p>Hi ${cust.name},</p><p>Your ${appt.purpose} appointment is booked for <strong>${when.toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'full', timeStyle: 'short' })}</strong>.</p>`,
+        text: `Your ${appt.purpose} appointment is booked for ${when.toISOString()}.`
+      });
+    }
+  } catch (e: any) {
+    console.warn('[createAppointment] calendar/notify', e?.message || e);
+  }
+
   await recomputeJob(ctx, job.id);
-  return appt;
+  return R.appts().findOneOrFail({ where: { id: appt.id } });
 }
 
 export async function updateAppointment(ctx: Ctx, id: string, input: Partial<AppointmentInput> & { status?: 'booked' | 'done' | 'cancelled' }) {
