@@ -12,10 +12,11 @@ void main() {
         child: MaterialApp(home: LoginPage()),
       ),
     );
-    expect(find.text('RABS'), findsOneWidget);
+    await tester.pump();
     expect(find.text('Staff'), findsOneWidget);
     expect(find.text('Customer'), findsOneWidget);
-    expect(find.text('Sign in'), findsOneWidget);
+    expect(find.textContaining('Sign in'), findsWidgets);
+    expect(find.textContaining('Staff sign-in'), findsOneWidget);
   });
 
   testWidgets('StatusChip and ProgressBar render', (tester) async {
@@ -35,6 +36,7 @@ void main() {
     );
     expect(find.text('Accepted'), findsOneWidget);
     expect(find.text('MEASURE'), findsOneWidget);
-    expect(find.textContaining('NEXT:'), findsOneWidget);
+    expect(find.text('NEXT STEP'), findsOneWidget);
+    expect(find.text('START MEASUREMENT'), findsOneWidget);
   });
 }

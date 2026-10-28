@@ -3,9 +3,9 @@
     "short_name": "RABS",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0D9488",
-    "theme_color": "#0D9488",
-    "description": "RABS carpets & furniture — field, office and customer app",
+    "background_color": "#A31F24",
+    "theme_color": "#A31F24",
+    "description": "RABS Carpets & Furniture — Turning Houses Into Homes",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

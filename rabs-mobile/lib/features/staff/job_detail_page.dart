@@ -85,35 +85,57 @@ class _JobDetailPageState extends ConsumerState<JobDetailPage> {
     final next = _agg?['nextAction'] as Map?;
     if (next == null) return;
     final code = '${next['code']}';
+    final label = nz(next['label'], humanStatus(code));
     final id = widget.jobId;
     final dio = ref.read(dioProvider);
+
+    final needsConfirm = {
+      'accept_quote',
+      'convert_job',
+      'close_job',
+      'create_quote',
+      'check_materials',
+      'resolve_issue',
+    }.contains(code);
+    if (needsConfirm) {
+      final ok = await confirmAction(
+        context,
+        title: label,
+        body: '${nextActionHint(code)}\n\nContinue with “$label”?',
+        confirmLabel: 'Yes, continue',
+      );
+      if (!ok) return;
+    }
 
     switch (code) {
       case 'book_appointment':
         await _showAppointment();
         return;
       case 'start_measurement':
-        await _act(() => dio.rabsPost('/jobs/$id/measurement'), 'Measurement started');
+        await _act(() => dio.rabsPost('/jobs/$id/measurement'), 'Measurement started — enter rooms next');
         if (mounted) context.push('/staff/jobs/$id/measure');
         return;
       case 'create_quote':
-        await _act(() => dio.rabsPost('/jobs/$id/quotes'), 'Quote created');
+        await _act(() => dio.rabsPost('/jobs/$id/quotes'), 'Quotation created from measurements');
         if (mounted) context.push('/staff/jobs/$id/quote');
         return;
       case 'accept_quote':
         final qid = _agg?['currentQuote']?['quote']?['id'];
-        if (qid == null) return;
-        await _act(() => dio.rabsPost('/quotes/$qid/accept', data: {}), 'Quote accepted');
+        if (qid == null) {
+          await showBusySnack(context, 'No quotation to accept yet', error: true);
+          return;
+        }
+        await _act(() => dio.rabsPost('/quotes/$qid/accept', data: {}), 'Quote accepted — prices locked');
         return;
       case 'convert_job':
-        await _act(() => dio.rabsPost('/jobs/$id/convert'), 'Converted to job');
+        await _act(() => dio.rabsPost('/jobs/$id/convert'), 'Converted — ready for deposit & booking');
         return;
       case 'record_deposit':
       case 'collect_balance':
         await _showPayment(code == 'record_deposit' ? 'deposit' : 'balance');
         return;
       case 'check_materials':
-        await _act(() => dio.rabsPost('/jobs/$id/materials/check'), 'Materials checked');
+        await _act(() => dio.rabsPost('/jobs/$id/materials/check'), 'Materials checked against stock');
         return;
       case 'book_fitting':
         await _showBooking('fitting');
@@ -124,14 +146,20 @@ class _JobDetailPageState extends ConsumerState<JobDetailPage> {
       case 'open_fitting':
       case 'open_delivery':
         final b = _activeBooking(code == 'open_fitting' ? 'fitting' : 'delivery');
-        if (b != null && mounted) context.push('/staff/jobs/$id/work/${b['id']}');
+        if (b == null) {
+          await showBusySnack(context, 'No active ${code == 'open_fitting' ? 'fitting' : 'delivery'} booking', error: true);
+          return;
+        }
+        if (mounted) context.push('/staff/jobs/$id/work/${b['id']}');
         return;
       case 'close_job':
         await _act(() => dio.rabsPost('/jobs/$id/close', data: {}), 'Job closed');
         return;
       case 'resolve_issue':
-        await _act(() => dio.rabsPost('/jobs/$id/issue/resolve', data: {'note': 'Resolved on mobile'}), 'Issue resolved');
+        await _act(() => dio.rabsPost('/jobs/$id/issue/resolve', data: {'note': 'Resolved on mobile'}), 'Issue cleared — job can continue');
         return;
+      default:
+        await showBusySnack(context, 'This step is not available on mobile yet. Use the office web app.', error: true);
     }
   }
 
@@ -259,25 +287,20 @@ class _JobDetailPageState extends ConsumerState<JobDetailPage> {
   Future<void> _showBooking(String type) async {
     final day = DateTime.now().add(const Duration(days: 2));
     final date = '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Book $type'),
-        content: Text('Book for $date (AM)? Assign from diary later if needed.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Book')),
-        ],
-      ),
+    final ok = await confirmAction(
+      context,
+      title: 'Book ${humanStatus(type)}',
+      body: 'Schedule $type for $date (AM slot).\n\nYou can reassign staff from the diary afterwards.',
+      confirmLabel: 'Book $type',
     );
-    if (ok != true) return;
+    if (!ok) return;
     await _act(
       () => ref.read(dioProvider).rabsPost('/jobs/${widget.jobId}/bookings', data: {
         'type': type,
         'scheduledDate': date,
         'slot': 'AM',
       }),
-      '${type[0].toUpperCase()}${type.substring(1)} booked',
+      '${humanStatus(type)} booked for $date',
     );
   }
 
@@ -285,7 +308,7 @@ class _JobDetailPageState extends ConsumerState<JobDetailPage> {
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).user;
     if (_error != null) {
-      return Scaffold(appBar: AppBar(), body: Padding(padding: const EdgeInsets.all(16), child: ErrorBanner(_error!, onRetry: _load)));
+      return Scaffold(appBar: AppBar(title: const Text('Job')), body: Padding(padding: const EdgeInsets.all(16), child: ErrorBanner(_error!, onRetry: _load)));
     }
     if (_agg == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -297,75 +320,131 @@ class _JobDetailPageState extends ConsumerState<JobDetailPage> {
     final progress = _agg!['progress'] as Map? ?? {};
     final next = _agg!['nextAction'] as Map?;
     final money = _agg!['money'] as Map?;
-    final steps = ((progress['steps'] as List?) ?? []).map((e) => '${(e as Map)['label'] ?? e}').toList();
+    final steps = ((progress['steps'] as List?) ?? []).map((e) => nz((e as Map)['label'] ?? e, '')).where((s) => s.isNotEmpty).toList();
     final idx = (progress['index'] as num?)?.toInt() ?? 0;
-    final cap = next == null ? null : _actionCap['${next['code']}'] ?? 'customers';
+    final nextCode = next == null ? null : '${next['code']}';
+    final cap = nextCode == null ? null : _actionCap[nextCode] ?? 'customers';
     final canNext = next != null && (user?.can(cap!) ?? false);
+    final site = nz(_agg!['siteAddress'] ?? customer['addressLine1'], '');
+    final phone = nz(customer['phone'], '');
+    final materials = (_agg!['materials'] as List?) ?? [];
+    final bookings = (_agg!['bookings'] as List?) ?? [];
+    final timeline = (_agg!['timeline'] as List?) ?? [];
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('${job['jobNumber']}'),
+        title: Text(nz(job['jobNumber'], 'Job')),
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
+          IconButton(tooltip: 'Refresh job', icon: const Icon(Icons.refresh), onPressed: _busy ? null : _load),
         ],
       ),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(child: Text('${customer['name']}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20))),
-                StatusChip(label: '${status['label'] ?? status['code'] ?? job['status']}', colorHex: status['color']?.toString(), textHex: status['textColor']?.toString()),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(nz(customer['name'], 'Customer'), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 22, color: Color(0xFF141111))),
+                      if (site.isNotEmpty) Text(site, style: TextStyle(color: Colors.grey.shade700, height: 1.3)),
+                    ],
+                  ),
+                ),
+                StatusChip(
+                  label: nz(status['label'] ?? status['code'] ?? job['status'], 'In progress'),
+                  colorHex: status['color']?.toString(),
+                  textHex: status['textColor']?.toString(),
+                ),
               ],
             ),
-            if (_agg!['siteAddress'] != null) Text('${_agg!['siteAddress']}', style: TextStyle(color: Colors.grey.shade700)),
             const SizedBox(height: 8),
-            Row(
+            Wrap(
+              spacing: 4,
               children: [
-                if (customer['phone'] != null)
-                  TextButton.icon(onPressed: () => launchPhone('${customer['phone']}'), icon: const Icon(Icons.phone), label: const Text('Call')),
-                TextButton.icon(onPressed: () => launchMaps('${_agg!['siteAddress']}'), icon: const Icon(Icons.map), label: const Text('Map')),
+                if (phone.isNotEmpty)
+                  TextButton.icon(onPressed: () => launchPhone(phone), icon: const Icon(Icons.phone), label: const Text('Call customer')),
+                if (site.isNotEmpty)
+                  TextButton.icon(onPressed: () => launchMaps(site), icon: const Icon(Icons.map), label: const Text('Directions')),
               ],
             ),
             if (steps.isNotEmpty) ...[
               const SizedBox(height: 8),
               ProgressBar(steps: steps, index: idx),
+              const SizedBox(height: 6),
+              Text('Job progress — completed steps stay highlighted', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+            ],
+            if (canNext) ...[
+              const SizedBox(height: 16),
+              NextActionButton(
+                label: nz(next['label'], 'Continue'),
+                hint: nextActionHint(nextCode),
+                onPressed: _runNext,
+                busy: _busy,
+              ),
+            ] else if (next != null) ...[
+              const SizedBox(height: 16),
+              GuideBanner(
+                title: 'Waiting on another role',
+                body: 'Next step is “${nz(next['label'])}”, but your login cannot do that action. Ask office staff or switch account.',
+                icon: Icons.lock_outline,
+              ),
             ],
             if (money != null) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               SectionCard(
                 title: 'Money',
+                subtitle: 'Only customer-facing totals — no catalogue costs here',
                 child: Column(
                   children: [
-                    _kv('Total', gbp.format((money['total'] as num?)?.toDouble() ?? (money['quoteTotal'] as num?)?.toDouble() ?? 0)),
+                    _kv('Quote / job total', gbp.format((money['total'] as num?)?.toDouble() ?? (money['quoteTotal'] as num?)?.toDouble() ?? 0)),
                     _kv('Deposit required', gbp.format((money['depositRequired'] as num?)?.toDouble() ?? 0)),
-                    _kv('Paid', gbp.format((money['paid'] as num?)?.toDouble() ?? 0)),
-                    _kv('Balance', gbp.format((money['balance'] as num?)?.toDouble() ?? 0)),
-                    if (money['depositOutstanding'] != null) _kv('Deposit due', gbp.format((money['depositOutstanding'] as num).toDouble())),
+                    _kv('Paid so far', gbp.format((money['paid'] as num?)?.toDouble() ?? 0)),
+                    _kv('Balance due', gbp.format((money['balance'] as num?)?.toDouble() ?? 0)),
+                    if (money['depositOutstanding'] != null && (money['depositOutstanding'] as num) > 0.005)
+                      _kv('Deposit still due', gbp.format((money['depositOutstanding'] as num).toDouble())),
                   ],
                 ),
               ),
             ],
-            if (((_agg!['materials'] as List?) ?? []).isNotEmpty) ...[
+            if (materials.isNotEmpty) ...[
               const SizedBox(height: 12),
               SectionCard(
-                title: 'Materials · ${job['materialsStatus'] ?? ''}',
+                title: 'Materials',
+                subtitle: materialsStatusLabel(job['materialsStatus']),
                 child: Column(
                   children: [
-                    for (final m in (_agg!['materials'] as List))
+                    for (final m in materials)
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         dense: true,
-                        title: Text('${(m as Map)['description'] ?? m['product']?['name'] ?? 'Item'}'),
-                        subtitle: Text('Need ${m['qtyRequired'] ?? m['qty']} · reserved ${m['qtyReserved'] ?? 0} · ${m['status'] ?? ''}'),
+                        title: Text(nz((m as Map)['description'] ?? m['product']?['name'], 'Material line'), style: const TextStyle(fontWeight: FontWeight.w600)),
+                        subtitle: Text(joinClean([
+                          'Need ${nz(m['qtyRequired'] ?? m['qty'], '?')}',
+                          'Reserved ${nz(m['qtyReserved'], '0')}',
+                          materialsStatusLabel(m['status']),
+                        ])),
                         trailing: user?.can('materials') == true && m['status'] == 'to_order'
                             ? TextButton(
-                                onPressed: () => _act(
-                                  () => ref.read(dioProvider).rabsPost('/materials/${m['id']}/status', data: {'status': 'ordered'}),
-                                  'Marked ordered',
-                                ),
+                                onPressed: _busy
+                                    ? null
+                                    : () async {
+                                        final ok = await confirmAction(
+                                          context,
+                                          title: 'Mark as ordered?',
+                                          body: 'Confirm purchasing has ordered: ${nz(m['description'], 'this item')}.',
+                                          confirmLabel: 'Yes, ordered',
+                                        );
+                                        if (!ok) return;
+                                        await _act(
+                                          () => ref.read(dioProvider).rabsPost('/materials/${m['id']}/status', data: {'status': 'ordered'}),
+                                          'Marked ordered',
+                                        );
+                                      },
                                 child: const Text('Ordered'),
                               )
                             : null,
@@ -374,21 +453,28 @@ class _JobDetailPageState extends ConsumerState<JobDetailPage> {
                 ),
               ),
             ],
-            if (((_agg!['bookings'] as List?) ?? []).isNotEmpty) ...[
+            if (bookings.isNotEmpty) ...[
               const SizedBox(height: 12),
               SectionCard(
-                title: 'Fitting / delivery',
+                title: 'Fitting & delivery',
+                subtitle: 'Open a booking to run the on-site checklist',
                 child: Column(
                   children: [
-                    for (final b in (_agg!['bookings'] as List))
+                    for (final b in bookings)
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         dense: true,
-                        title: Text('${(b as Map)['type']}'.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w700)),
-                        subtitle: Text('${fmtDate(b['scheduledDate'])} · ${b['slot'] ?? ''} · ${b['staffName'] ?? 'Unassigned'} · ${b['status']}'),
+                        title: Text(humanStatus((b as Map)['type']), style: const TextStyle(fontWeight: FontWeight.w800)),
+                        subtitle: Text(joinClean([
+                          fmtDate(b['scheduledDate']),
+                          nz(b['slot'], ''),
+                          nz(b['staffName'], 'Unassigned'),
+                          humanStatus(b['status']),
+                        ])),
                         trailing: b['status'] != 'complete' && b['status'] != 'cancelled'
                             ? IconButton(
-                                icon: const Icon(Icons.chevron_right),
+                                tooltip: 'Open ${humanStatus(b['type'])} checklist',
+                                icon: const Icon(Icons.chevron_right, color: Color(0xFFA31F24)),
                                 onPressed: () => context.push('/staff/jobs/${widget.jobId}/work/${b['id']}'),
                               )
                             : null,
@@ -397,52 +483,81 @@ class _JobDetailPageState extends ConsumerState<JobDetailPage> {
                 ),
               ),
             ],
-            if (((_agg!['timeline'] as List?) ?? []).isNotEmpty) ...[
+            if (timeline.isNotEmpty) ...[
               const SizedBox(height: 12),
               SectionCard(
                 title: 'History',
+                subtitle: 'What has already happened on this job',
                 child: Column(
                   children: [
-                    for (final t in (_agg!['timeline'] as List).take(12))
+                    for (final t in timeline.take(12))
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         dense: true,
-                        title: Text('${(t as Map)['message'] ?? t['summary'] ?? t['event']}', style: const TextStyle(fontSize: 13)),
+                        title: Text(nz((t as Map)['message'] ?? t['summary'], humanStatus(t['event'])), style: const TextStyle(fontSize: 13)),
                         subtitle: Text(fmtDateTime(t['createdAt'])),
                       ),
                   ],
                 ),
               ),
             ],
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
+            Text('More actions', style: TextStyle(fontWeight: FontWeight.w800, color: Colors.grey.shade800)),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
                 if (user?.can('measure') == true)
-                  OutlinedButton.icon(onPressed: () => context.push('/staff/jobs/${widget.jobId}/measure'), icon: const Icon(Icons.straighten), label: const Text('Measure')),
+                  OutlinedButton.icon(
+                    onPressed: () => context.push('/staff/jobs/${widget.jobId}/measure'),
+                    icon: const Icon(Icons.straighten),
+                    label: const Text('Rooms & measure'),
+                  ),
                 if (user?.can('quotes') == true)
-                  OutlinedButton.icon(onPressed: () => context.push('/staff/jobs/${widget.jobId}/quote'), icon: const Icon(Icons.request_quote), label: const Text('Quote')),
+                  OutlinedButton.icon(
+                    onPressed: () => context.push('/staff/jobs/${widget.jobId}/quote'),
+                    icon: const Icon(Icons.request_quote),
+                    label: const Text('Quotation'),
+                  ),
                 if (user?.can('invoices') == true)
                   OutlinedButton(
-                    onPressed: () => _act(() => ref.read(dioProvider).rabsPost('/jobs/${widget.jobId}/invoice'), 'Invoice generated'),
+                    onPressed: _busy
+                        ? null
+                        : () async {
+                            final ok = await confirmAction(
+                              context,
+                              title: 'Generate invoice?',
+                              body: 'Creates the invoice from the accepted quote and approved variations.',
+                              confirmLabel: 'Generate',
+                            );
+                            if (!ok) return;
+                            await _act(() => ref.read(dioProvider).rabsPost('/jobs/${widget.jobId}/invoice'), 'Invoice generated');
+                          },
                     child: const Text('Invoice'),
                   ),
                 if (user?.can('bookings') == true)
                   OutlinedButton(
-                    onPressed: () => _act(
-                      () => ref.read(dioProvider).rabsPost('/jobs/${widget.jobId}/issue', data: {'note': 'Issue raised from mobile'}),
-                      'Issue raised',
-                    ),
+                    onPressed: _busy
+                        ? null
+                        : () async {
+                            final ok = await confirmAction(
+                              context,
+                              title: 'Raise an issue?',
+                              body: 'Pauses the normal next step until someone resolves the snag.',
+                              confirmLabel: 'Raise issue',
+                              destructive: true,
+                            );
+                            if (!ok) return;
+                            await _act(
+                              () => ref.read(dioProvider).rabsPost('/jobs/${widget.jobId}/issue', data: {'note': 'Issue raised from mobile'}),
+                              'Issue raised — resolve when fixed',
+                            );
+                          },
                     child: const Text('Raise issue'),
                   ),
               ],
             ),
-            if (canNext) ...[
-              const SizedBox(height: 16),
-              NextActionButton(label: '${next['label']}', onPressed: _runNext, busy: _busy),
-            ],
-            const SizedBox(height: 24),
           ],
         ),
       ),

@@ -48,6 +48,17 @@ class _CustomerHomePageState extends ConsumerState<CustomerHomePage> {
     }
   }
 
+  Future<void> _signOut() async {
+    final ok = await confirmAction(
+      context,
+      title: 'Sign out?',
+      body: 'You will need a new login code next time.',
+      confirmLabel: 'Sign out',
+      destructive: true,
+    );
+    if (ok) await ref.read(authProvider.notifier).logout();
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).user;
@@ -58,31 +69,32 @@ class _CustomerHomePageState extends ConsumerState<CustomerHomePage> {
           child: ListView(
             padding: const EdgeInsets.all(16),
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('My jobs', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900, color: RabsTheme.brandDark)),
-                        Text(_me?['name']?.toString() ?? user?.displayName ?? 'Customer', style: TextStyle(color: Colors.grey.shade600)),
-                      ],
-                    ),
-                  ),
-                  IconButton(onPressed: () => ref.read(authProvider.notifier).logout(), icon: const Icon(Icons.logout)),
-                ],
+              BrandHeader(
+                subtitle: nz(_me?['name'] ?? user?.displayName, 'Your RABS jobs'),
+                trailing: IconButton(tooltip: 'Sign out', onPressed: _signOut, icon: const Icon(Icons.logout, color: RabsTheme.brandDark)),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
+              const GuideBanner(
+                title: 'Your job progress',
+                body: 'Tap a job to see where we are — measure, quote, deposit, fitting and completion. You can accept or decline a quote from the job screen.',
+                icon: Icons.home_work_outlined,
+              ),
+              const SizedBox(height: 14),
               if (_error != null) ErrorBanner(_error!, onRetry: _load),
               if (_loading) const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator())),
-              if (!_loading && _jobs.isEmpty) const EmptyState('No jobs found for your account yet.'),
+              if (!_loading && _jobs.isEmpty)
+                const EmptyState(
+                  'No jobs on your account yet',
+                  hint: 'If you expected to see a quotation, check you signed in with the same phone or email that is on the paperwork.',
+                  icon: Icons.folder_open_outlined,
+                ),
               for (final j in _jobs)
                 Card(
                   margin: const EdgeInsets.only(bottom: 10),
                   child: ListTile(
-                    title: Text('${(j as Map)['jobNumber']}', style: const TextStyle(fontWeight: FontWeight.w800)),
-                    subtitle: Text('${j['statusLabel'] ?? j['status'] ?? ''} · ${j['siteAddress'] ?? ''}'),
-                    trailing: const Icon(Icons.chevron_right),
+                    title: Text(nz((j as Map)['jobNumber'], 'Job'), style: const TextStyle(fontWeight: FontWeight.w800)),
+                    subtitle: Text(joinClean([humanStatus(j['statusLabel'] ?? j['status']), j['siteAddress']])),
+                    trailing: const Icon(Icons.chevron_right, color: RabsTheme.brand),
                     onTap: () => context.push('/customer/jobs/${j['id']}'),
                   ),
                 ),

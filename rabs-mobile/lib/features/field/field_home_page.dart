@@ -62,19 +62,29 @@ class _FieldHomePageState extends ConsumerState<FieldHomePage> {
         padding: const EdgeInsets.all(16),
         children: [
           if (!widget.embeddedInStaff) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: Text('My work', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
-                ),
-                IconButton(
-                  tooltip: 'Sign out',
-                  onPressed: () => ref.read(authProvider.notifier).logout(),
-                  icon: const Icon(Icons.logout),
-                ),
-              ],
+            BrandHeader(
+              subtitle: 'Hi ${nz(user?.displayName, 'fitter')} — your fittings & deliveries',
+              trailing: IconButton(
+                tooltip: 'Sign out',
+                onPressed: () async {
+                  final ok = await confirmAction(
+                    context,
+                    title: 'Sign out?',
+                    body: 'You will need your work login again.',
+                    confirmLabel: 'Sign out',
+                    destructive: true,
+                  );
+                  if (ok) await ref.read(authProvider.notifier).logout();
+                },
+                icon: const Icon(Icons.logout, color: RabsTheme.brandDark),
+              ),
             ),
-            Text('Hi ${user?.displayName ?? ''}', style: TextStyle(color: Colors.grey.shade600)),
+            const SizedBox(height: 12),
+            const GuideBanner(
+              title: 'On site',
+              body: 'Open a booking → complete the checklist → take before/after photos → capture the customer signature → mark complete.',
+              icon: Icons.handyman_outlined,
+            ),
             const SizedBox(height: 12),
           ],
           SegmentedButton<String>(
@@ -94,7 +104,11 @@ class _FieldHomePageState extends ConsumerState<FieldHomePage> {
           if (_loading)
             const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()))
           else if ((_rows ?? []).isEmpty)
-            EmptyState(_scope == 'today' ? 'Nothing booked for you today.' : 'No jobs assigned to you.')
+            EmptyState(
+              _scope == 'today' ? 'Nothing booked for you today' : 'No jobs assigned to you',
+              hint: 'When office books a fitting or delivery to you, it appears here. Pull down to refresh.',
+              icon: Icons.event_available_outlined,
+            )
           else
             ..._groupByDay(_rows!).entries.expand((e) => [
                   Padding(
@@ -156,23 +170,23 @@ class _WorkCard extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Expanded(child: Text('${w['customerName']}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16), overflow: TextOverflow.ellipsis)),
+                        Expanded(child: Text(nz(w['customerName'], 'Customer'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16), overflow: TextOverflow.ellipsis)),
                         StatusChip(
-                          label: status.replaceAll('_', ' '),
+                          label: humanStatus(status),
                           colorHex: status == 'complete'
                               ? '#16A34A'
                               : status == 'in_progress'
                                   ? '#F59E0B'
-                                  : '#2563EB',
+                                  : '#A31F24',
                         ),
                       ],
                     ),
                     Text(
-                      '${w['type']} · ${w['slot'] ?? 'Any time'} · ${w['jobNumber']}',
+                      joinClean([humanStatus(w['type']), nz(w['slot'], 'Any time'), w['jobNumber']]),
                       style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                     ),
-                    if (w['address'] != null)
-                      Text('${w['address']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
+                    if (nz(w['address'], '').isNotEmpty)
+                      Text(nz(w['address']), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
                   ],
                 ),
               ),

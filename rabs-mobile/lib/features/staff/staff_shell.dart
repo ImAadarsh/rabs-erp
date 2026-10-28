@@ -41,19 +41,46 @@ class StaffShell extends ConsumerWidget {
           }
         },
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.work_outline), selectedIcon: Icon(Icons.work), label: 'Jobs'),
-          NavigationDestination(icon: Icon(Icons.calendar_today_outlined), selectedIcon: Icon(Icons.calendar_today), label: 'Diary'),
-          NavigationDestination(icon: Icon(Icons.handyman_outlined), selectedIcon: Icon(Icons.handyman), label: 'Field'),
-          NavigationDestination(icon: Icon(Icons.bar_chart_outlined), selectedIcon: Icon(Icons.bar_chart), label: 'Reports'),
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            selectedIcon: Icon(Icons.dashboard),
+            label: 'Home',
+            tooltip: 'Today’s overview and jobs that need action',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.work_outline),
+            selectedIcon: Icon(Icons.work),
+            label: 'Jobs',
+            tooltip: 'Search and open every job in the pipeline',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.calendar_today_outlined),
+            selectedIcon: Icon(Icons.calendar_today),
+            label: 'Diary',
+            tooltip: 'Appointments and visits by day',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.handyman_outlined),
+            selectedIcon: Icon(Icons.handyman),
+            label: 'Field',
+            tooltip: 'Fitting and delivery work assigned to you',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.bar_chart_outlined),
+            selectedIcon: Icon(Icons.bar_chart),
+            label: 'Reports',
+            tooltip: 'Sales, outstanding balances and schedule',
+          ),
         ],
       ),
       floatingActionButton: user?.can('customers') == true && idx <= 1
           ? FloatingActionButton.extended(
               onPressed: () => context.push('/staff/new'),
               backgroundColor: RabsTheme.brand,
+              foregroundColor: Colors.white,
               icon: const Icon(Icons.add),
-              label: const Text('Enquiry'),
+              label: const Text('New enquiry'),
+              tooltip: 'Start a new customer enquiry and optional appointment',
             )
           : null,
     );

@@ -193,9 +193,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  Future<void> requestPortalOtp(String phoneOrEmail) async {
+  Future<Map<String, dynamic>> requestPortalOtp(String phoneOrEmail) async {
     final dio = Dio(BaseOptions(baseUrl: AppConfig.apiBase));
-    await dio.post('/api/rabs/portal/request-otp', data: {'identifier': phoneOrEmail.trim()});
+    final res = await dio.post('/api/rabs/portal/request-otp', data: {'identifier': phoneOrEmail.trim()});
+    return res.data is Map<String, dynamic>
+        ? res.data as Map<String, dynamic>
+        : Map<String, dynamic>.from(res.data as Map);
   }
 
   Future<void> verifyPortalOtp(String phoneOrEmail, String code) async {
