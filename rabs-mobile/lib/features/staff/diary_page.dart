@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/api_client.dart';
+import '../../core/theme.dart';
 import '../../shared/widgets.dart';
 
 class DiaryPage extends ConsumerStatefulWidget {
@@ -48,29 +49,62 @@ class _DiaryPageState extends ConsumerState<DiaryPage> {
     }
   }
 
+  Map<String, List<dynamic>> _byDay() {
+    final map = <String, List<dynamic>>{};
+    for (final a in _rows) {
+      final when = DateTime.tryParse('${(a as Map)['scheduledAt']}');
+      final key = when != null ? DateFormat('yyyy-MM-dd').format(when) : 'unknown';
+      map.putIfAbsent(key, () => []).add(a);
+    }
+    return map;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final grouped = _byDay();
     return SafeArea(
       child: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
           children: [
-            Text('Diary', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
+            const BrandHeader(subtitle: 'Survey visits for the next three weeks'),
+            const SizedBox(height: 12),
+            const GuideBanner(
+              title: 'Using the diary',
+              body: 'Tap an appointment to open the job. Book new visits from the job’s NEXT STEP when status asks for an appointment.',
+              icon: Icons.event_available_outlined,
+            ),
             const SizedBox(height: 12),
             if (_error != null) ErrorBanner(_error!, onRetry: _load),
             if (_loading) const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator())),
-            if (!_loading && _rows.isEmpty) const EmptyState('No appointments in the next three weeks.'),
-            for (final a in _rows)
-              Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  title: Text('${(a as Map)['customerName']}', style: const TextStyle(fontWeight: FontWeight.w700)),
-                  subtitle: Text('${fmtDateTime(a['scheduledAt'])} · ${a['purpose'] ?? ''} · ${a['jobNumber'] ?? ''}'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: a['jobId'] != null ? () => context.push('/staff/jobs/${a['jobId']}') : null,
-                ),
+            if (!_loading && _rows.isEmpty)
+              const EmptyState(
+                'No appointments booked',
+                hint: 'Open a new enquiry job and use NEXT STEP → Book appointment.',
+                icon: Icons.event_busy_outlined,
               ),
+            for (final entry in grouped.entries) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 10, bottom: 6),
+                child: Text(fmtDate(entry.key), style: const TextStyle(fontWeight: FontWeight.w900, color: RabsTheme.brandDark)),
+              ),
+              for (final a in entry.value)
+                Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    title: Text(nz((a as Map)['customerName'], 'Customer'), style: const TextStyle(fontWeight: FontWeight.w800)),
+                    subtitle: Text(joinClean([
+                      fmtDateTime(a['scheduledAt']),
+                      humanStatus(a['purpose']),
+                      a['staffName'] ?? 'Unassigned',
+                      a['jobNumber'],
+                    ])),
+                    trailing: const Icon(Icons.chevron_right, color: RabsTheme.brand),
+                    onTap: a['jobId'] != null ? () => context.push('/staff/jobs/${a['jobId']}') : null,
+                  ),
+                ),
+            ],
           ],
         ),
       ),

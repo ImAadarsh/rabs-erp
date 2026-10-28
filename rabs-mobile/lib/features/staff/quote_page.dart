@@ -129,21 +129,35 @@ class _QuotePageState extends ConsumerState<QuotePage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Add custom line'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(controller: desc, decoration: const InputDecoration(labelText: 'Description')),
-            TextField(controller: qty, decoration: const InputDecoration(labelText: 'Qty'), keyboardType: const TextInputType.numberWithOptions(decimal: true)),
-            TextField(controller: price, decoration: const InputDecoration(labelText: 'Unit price £'), keyboardType: const TextInputType.numberWithOptions(decimal: true)),
-          ],
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Use this for extras that are not in the catalogue (e.g. disposal, special trim).',
+                style: TextStyle(color: Colors.grey.shade700, height: 1.35, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              TextField(controller: desc, decoration: const InputDecoration(labelText: 'What is this line?', hintText: 'e.g. Uplift & dispose old carpet')),
+              const SizedBox(height: 10),
+              TextField(controller: qty, decoration: const InputDecoration(labelText: 'Quantity'), keyboardType: const TextInputType.numberWithOptions(decimal: true)),
+              const SizedBox(height: 10),
+              TextField(controller: price, decoration: const InputDecoration(labelText: 'Unit price (£)', helperText: 'Sell price the customer pays'), keyboardType: const TextInputType.numberWithOptions(decimal: true)),
+            ],
+          ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Add')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Add line')),
         ],
       ),
     );
-    if (ok != true || desc.text.trim().length < 2) return;
+    if (ok != true) return;
+    if (desc.text.trim().length < 2) {
+      await showBusySnack(context, 'Enter a description for the line', error: true);
+      return;
+    }
     setState(() => _busy = true);
     try {
       await ref.read(dioProvider).rabsPost('/quotes/$quoteId/lines', data: {
@@ -262,6 +276,12 @@ class _QuotePageState extends ConsumerState<QuotePage> {
     );
   }
 
+  Future<void> _confirmPost(String path, String title, String body, String success) async {
+    final ok = await confirmAction(context, title: title, body: body, confirmLabel: title);
+    if (!ok) return;
+    await _post(path, success);
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authProvider).user;
@@ -278,35 +298,59 @@ class _QuotePageState extends ConsumerState<QuotePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(quote == null ? 'Quote' : '${quote['quoteNumber']}'),
+        title: Text(quote == null ? 'Quotation' : nz(quote['quoteNumber'], 'Quotation')),
         actions: [
-          if (quote == null) IconButton(onPressed: _busy ? null : _ensureQuote, icon: const Icon(Icons.add)),
+          if (quote == null) IconButton(tooltip: 'Create quotation', onPressed: _busy ? null : _ensureQuote, icon: const Icon(Icons.add)),
         ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           if (quote == null) ...[
-            const EmptyState('No quote yet. Create one from the measurement.'),
-            FilledButton(onPressed: _busy ? null : _ensureQuote, child: const Text('Create quotation')),
+            const EmptyState(
+              'No quotation yet',
+              hint: 'Finish measuring rooms first, then create the quote from those sizes.',
+              icon: Icons.request_quote_outlined,
+            ),
+            FilledButton(onPressed: _busy ? null : _ensureQuote, child: const Text('Create quotation from measurement')),
           ] else ...[
-            StatusChip(label: '${quote['status']}'.toUpperCase(), colorHex: quote['status'] == 'accepted' ? '#16A34A' : quote['status'] == 'sent' ? '#F59E0B' : '#D1D5DB', textHex: quote['status'] == 'draft' ? '#111827' : '#FFFFFF'),
+            const GuideBanner(
+              title: 'Quotation workflow',
+              body: 'Edit lines while Draft → Send to customer → Accept when they agree. Tap a line to change qty or price.',
+              icon: Icons.edit_note_outlined,
+            ),
+            const SizedBox(height: 12),
+            StatusChip(
+              label: humanStatus(quote['status']),
+              colorHex: quote['status'] == 'accepted'
+                  ? '#16A34A'
+                  : quote['status'] == 'sent'
+                      ? '#F59E0B'
+                      : '#D1D5DB',
+              textHex: quote['status'] == 'draft' ? '#111827' : '#FFFFFF',
+            ),
             const SizedBox(height: 12),
             SectionCard(
               title: 'Lines',
+              subtitle: draft ? 'Tap a line to edit' : 'Locked for this version',
               child: Column(
                 children: [
+                  if (lines.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Text('No lines yet — add a product or custom line below.'),
+                    ),
                   for (final line in lines)
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       onTap: draft && user?.can('quotes') == true ? () => _editLine(line as Map, '${quote['id']}') : null,
-                      title: Text('${(line as Map)['description']}', style: const TextStyle(fontWeight: FontWeight.w600)),
-                      subtitle: Text('Qty ${(line['qty'] ?? 1)} × ${gbp.format((line['unitPrice'] as num?)?.toDouble() ?? 0)}'),
-                      trailing: Text(gbp.format((line['lineTotal'] as num?)?.toDouble() ?? 0)),
+                      title: Text(nz((line as Map)['description'], 'Line'), style: const TextStyle(fontWeight: FontWeight.w700)),
+                      subtitle: Text('Qty ${nz(line['qty'], '1')} × ${gbp.format((line['unitPrice'] as num?)?.toDouble() ?? 0)}'),
+                      trailing: Text(gbp.format((line['lineTotal'] as num?)?.toDouble() ?? 0), style: const TextStyle(fontWeight: FontWeight.w800)),
                     ),
                   const Divider(),
                   _kv('Total', gbp.format((quote['total'] as num?)?.toDouble() ?? 0)),
-                  if (user?.can('view_costs') == true && quote['costTotal'] != null) _kv('Cost', gbp.format((quote['costTotal'] as num).toDouble())),
+                  if (user?.can('view_costs') == true && quote['costTotal'] != null) _kv('Cost (internal)', gbp.format((quote['costTotal'] as num).toDouble())),
                 ],
               ),
             ),
@@ -320,22 +364,59 @@ class _QuotePageState extends ConsumerState<QuotePage> {
                 ],
               ),
             ],
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             if (draft && user?.can('quotes') == true)
-              FilledButton(onPressed: _busy ? null : () => _post('/quotes/${quote['id']}/send', 'Quote sent'), child: const Text('Send to customer')),
+              FilledButton(
+                onPressed: _busy
+                    ? null
+                    : () => _confirmPost(
+                          '/quotes/${quote['id']}/send',
+                          'Send to customer',
+                          'Marks this quotation as sent. The customer can then review it in the portal (and email if SMTP is configured).',
+                          'Quote sent to customer',
+                        ),
+                child: const Text('Send to customer'),
+              ),
             if ((quote['status'] == 'draft' || quote['status'] == 'sent') && user?.can('accept') == true) ...[
               const SizedBox(height: 8),
               FilledButton(
-                onPressed: _busy ? null : () => _post('/quotes/${quote['id']}/accept', 'Quote accepted'),
+                onPressed: _busy
+                    ? null
+                    : () => _confirmPost(
+                          '/quotes/${quote['id']}/accept',
+                          'Accept quote',
+                          'Locks prices and moves the job toward deposit. Only do this when the customer has agreed.',
+                          'Quote accepted',
+                        ),
                 style: FilledButton.styleFrom(backgroundColor: const Color(0xFF16A34A)),
                 child: const Text('Accept quote'),
               ),
             ],
             if (quote['status'] == 'sent' && user?.can('quotes') == true) ...[
               const SizedBox(height: 8),
-              OutlinedButton(onPressed: _busy ? null : () => _post('/quotes/${quote['id']}/decline', 'Quote declined'), child: const Text('Decline')),
+              OutlinedButton(
+                onPressed: _busy
+                    ? null
+                    : () => _confirmPost(
+                          '/quotes/${quote['id']}/decline',
+                          'Decline quote',
+                          'Marks the quotation as declined by the customer.',
+                          'Quote declined',
+                        ),
+                child: const Text('Decline'),
+              ),
               const SizedBox(height: 8),
-              OutlinedButton(onPressed: _busy ? null : () => _post('/quotes/${quote['id']}/revise', 'Revision started'), child: const Text('Revise')),
+              OutlinedButton(
+                onPressed: _busy
+                    ? null
+                    : () => _confirmPost(
+                          '/quotes/${quote['id']}/revise',
+                          'Start a revision',
+                          'Creates a new draft version so you can change lines without losing the old quote.',
+                          'Revision started',
+                        ),
+                child: const Text('Revise'),
+              ),
             ],
           ],
         ],

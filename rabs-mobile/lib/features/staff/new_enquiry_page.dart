@@ -151,7 +151,11 @@ class _NewEnquiryPageState extends ConsumerState<NewEnquiryPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('Search an existing customer first — do not create duplicates.', style: TextStyle(fontWeight: FontWeight.w600)),
+          const GuideBanner(
+            title: 'Start with a search',
+            body: 'Look up the customer first so you do not create a duplicate. Only fill the form if they are new.',
+            icon: Icons.person_search_outlined,
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: _search,
@@ -175,7 +179,7 @@ class _NewEnquiryPageState extends ConsumerState<NewEnquiryPage> {
           if (_existingCustomerId != null) ...[
             const SizedBox(height: 8),
             Material(
-              color: const Color(0xFFCCFBF1),
+              color: const Color(0xFFFCE8E9),
               borderRadius: BorderRadius.circular(12),
               child: ListTile(
                 title: Text('Using existing customer: ${_name.text}', style: const TextStyle(fontWeight: FontWeight.w700)),
